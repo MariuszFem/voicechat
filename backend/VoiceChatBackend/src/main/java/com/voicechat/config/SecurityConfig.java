@@ -24,15 +24,17 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-            .csrf(csrf -> csrf.disable())
-            .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/auth/**", "/ws/**", "/h2/**",
-                                 "/", "/index.html", "/app.js", "/style.css").permitAll()
-                .anyRequest().authenticated()
-            )
-            .headers(h -> h.frameOptions(f -> f.disable())) // dla H2 console
-            .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
+                .csrf(csrf -> csrf.disable()) // Wyłączamy CSRF dla ułatwienia pracy z API i konsolą
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth
+                        // POPRAWIONA ŚCIEŻKA DO H2: /h2-console/** zamiast /h2/**
+                        .requestMatchers("/api/auth/**", "/ws/**", "/h2-console/**",
+                                "/", "/index.html", "/app.js", "/style.css").permitAll()
+                        .anyRequest().authenticated()
+                )
+                // ODBLOKOWANIE RAMEK: Niezbędne dla konsoli H2
+                .headers(h -> h.frameOptions(f -> f.disable()))
+                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

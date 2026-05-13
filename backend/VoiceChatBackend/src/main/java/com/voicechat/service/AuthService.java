@@ -19,11 +19,18 @@ public class AuthService {
         this.jwtUtil = jwtUtil;
     }
 
-    public String register(String username, String password) {
+    // Dodaliśmy parametr 'role'
+    public String register(String username, String password, String role) {
         if (userRepository.existsByUsername(username)) {
             throw new RuntimeException("Użytkownik już istnieje");
         }
-        User user = new User(username, passwordEncoder.encode(password));
+
+        // Tworzymy użytkownika i ustawiamy wszystkie pola
+        User user = new User();
+        user.setUsername(username);
+        user.setPassword(passwordEncoder.encode(password));
+        user.setRole(role != null ? role : "STUDENT"); // Domyślnie Student jeśli rola jest pusta
+
         userRepository.save(user);
         return jwtUtil.generateToken(username);
     }

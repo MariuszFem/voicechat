@@ -1,29 +1,47 @@
 package com.voicechat.model;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
+import jakarta.persistence.*;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 public class Room {
 
     @Id
-    private String roomId;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
+    private String name;
+    private String description;
     private String accessCode;
+    private Long ownerId;
 
-    public Room() {
-    }
+    @ElementCollection
+    private List<String> attendanceList = new ArrayList<>();
 
-    public Room(String roomId, String accessCode) {
-        this.roomId = roomId;
+    public Room() {}
+
+    public Room(String name, String description, String accessCode, Long ownerId) {
+        this.name = name;
+        this.description = description;
         this.accessCode = accessCode;
+        this.ownerId = ownerId;
     }
 
-    public String getRoomId() {
-        return roomId;
-    }
+    public Long getId() { return id; }
 
-    public String getAccessCode() {
-        return accessCode;
-    }
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
+
+    public String getAccessCode() { return accessCode; }
+    public void setAccessCode(String accessCode) { this.accessCode = accessCode; }
+
+    public Long getOwnerId() { return ownerId; }
+    public void setOwnerId(Long ownerId) { this.ownerId = ownerId; }
+
+    public List<String> getAttendanceList() { return attendanceList; }
+    public void setAttendanceList(List<String> attendanceList) { this.attendanceList = attendanceList; }
 }
