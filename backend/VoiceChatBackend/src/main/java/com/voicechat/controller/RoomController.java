@@ -3,6 +3,7 @@ package com.voicechat.controller;
 import com.voicechat.model.Room;
 import com.voicechat.service.RoomService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -23,12 +24,16 @@ public class RoomController {
         try {
             String name = body.get("name");
             String description = body.get("description");
-            String username = body.get("username");
+
+            // FIX: Username comes from the JWT token, not the request body
+            // This prevents anyone from impersonating another user
+            String username = SecurityContextHolder.getContext().getAuthentication().getName();
 
             Room room = roomService.createRoom(name, description, username);
             return ResponseEntity.ok(room);
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(403).body(e.getMessage());
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Błąd serwera: " + e.getMessage());
         }
     }
 
@@ -36,10 +41,25 @@ public class RoomController {
     public ResponseEntity<?> joinRoom(@RequestBody Map<String, String> body) {
         try {
             String accessCode = body.get("accessCode");
-            String username = body.get("username"); // Kto dołącza (do listy obecności)
+
+            // FIX: Username comes from the JWT token, not the request body
+            String username = SecurityContextHolder.getContext().getAuthentication().getName();
 
             Room room = roomService.joinRoom(accessCode, username);
             return ResponseEntity.ok(room);
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PostMapping("/leave")
+    public ResponseEntity<?> leaveRoom(@RequestBody Map<String, String> body) {
+        try {
+            String accessCode = body.get("accessCode");
+            String username = SecurityContextHolder.getContext().getAuthentication().getName();
+
+            roomService.leaveRoom(accessCode, username);
+            return ResponseEntity.ok(Map.of("message", "Opuszczono salę"));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }

@@ -24,15 +24,20 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-                .csrf(csrf -> csrf.disable()) // Wyłączamy CSRF dla ułatwienia pracy z API i konsolą
+                .cors(cors -> cors.configure(http))
+                .csrf(csrf -> csrf.disable())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // POPRAWIONA ŚCIEŻKA DO H2: /h2-console/** zamiast /h2/**
-                        .requestMatchers("/api/auth/**", "/ws/**", "/h2-console/**",
+                        .requestMatchers("/api/auth/register", "/api/auth/login",
+                                "/ws/**", "/h2-console/**",
                                 "/", "/index.html", "/app.js", "/style.css").permitAll()
+                        // FIX: Only teachers can create a new teacher account
+                        .requestMatchers("/api/auth/register-teacher").hasRole("TEACHER")
+                        .requestMatchers("/api/rooms/create").hasRole("TEACHER")
+                        .requestMatchers("/api/rooms/join", "/api/rooms/leave",
+                                "/api/rooms/all").authenticated()
                         .anyRequest().authenticated()
                 )
-                // ODBLOKOWANIE RAMEK: Niezbędne dla konsoli H2
                 .headers(h -> h.frameOptions(f -> f.disable()))
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 

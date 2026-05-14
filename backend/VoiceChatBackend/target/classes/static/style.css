@@ -620,6 +620,41 @@ body {
     margin: 0;
 }
 
+.modal {
+    display: none; /* Ukryty na start */
+    position: fixed;
+    z-index: 1000;
+    left: 0; top: 0; width: 100%; height: 100%;
+    background-color: rgba(0,0,0,0.7);
+}
+
+.modal-content {
+    background-color: #2f3136; /* Kolor jak w Discordzie */
+    margin: 15% auto;
+    padding: 20px;
+    width: 300px;
+    border-radius: 8px;
+    color: white;
+}
+
+.modal-content input, .modal-content textarea {
+    width: 100%;
+    margin: 10px 0;
+    background: #40444b;
+    border: none;
+    color: white;
+    padding: 8px;
+}
+
+#submitRoomBtn {
+    background-color: #5865f2;
+    color: white;
+    border: none;
+    padding: 10px;
+    width: 100%;
+    cursor: pointer;
+}
+
 /* ===== SCROLLBAR ===== */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }

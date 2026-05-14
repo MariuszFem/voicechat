@@ -47,11 +47,12 @@
 <!-- ===== GŁÓWNY LAYOUT ===== -->
 <div id="app" style="display:none;" class="app-layout">
 
-    <!-- Lewa kolumna: ikony serwerów/wydziałów -->
+    <!-- Lewa kolumna: ikony serwerów -->
     <nav class="servers-bar">
         <div class="server-icon active" title="Główny serwer">🎓</div>
         <div class="server-divider"></div>
-        <div class="server-icon" title="Dodaj serwer" onclick="alert('Wkrótce!')">+</div>
+        <!-- POPRAWKA: Przycisk otwierający nasz modal -->
+        <div class="server-icon" id="openModalBtn" title="Dodaj serwer">+</div>
     </nav>
 
     <!-- Panel kanałów -->
@@ -64,7 +65,8 @@
         <div class="channel-section">
             <div class="channel-section-title">
                 <span>KANAŁY GŁOSOWE</span>
-                <span class="add-channel" onclick="showCreateRoom()" title="Utwórz kanał">+</span>
+                <!-- Ikona plusa tutaj też może otwierać ten sam modal -->
+                <span class="add-channel" onclick="document.getElementById('roomModal').style.display='block'">+</span>
             </div>
             <div id="channel-list"></div>
         </div>
@@ -81,15 +83,12 @@
 
     <!-- Główny panel -->
     <main class="main-panel">
-
-        <!-- Idle -->
         <div id="idle-view" class="idle-view">
             <div class="idle-icon">🎙️</div>
             <h2>Wybierz kanał głosowy</h2>
             <p>Kliknij kanał po lewej, aby dołączyć do rozmowy.</p>
         </div>
 
-        <!-- Aktywny kanał -->
         <div id="voice-view" style="display:none;" class="voice-view">
             <div class="voice-header">
                 <span class="voice-channel-icon">🔊</span>
@@ -111,13 +110,12 @@
             </div>
 
             <div class="voice-controls">
-                <button class="ctrl-btn" id="mute-btn" onclick="toggleMute()" title="Wycisz mikrofon">🎤</button>
-                <button class="ctrl-btn danger" onclick="leaveRoom()" title="Opuść kanał">📵</button>
+                <button class="ctrl-btn" id="mute-btn" onclick="toggleMute()">🎤</button>
+                <button class="ctrl-btn danger" onclick="leaveRoom()">📵</button>
             </div>
         </div>
     </main>
 
-    <!-- Prawy panel: uczestnicy -->
     <aside class="members-panel">
         <div class="members-title">Uczestnicy — <span id="member-count">0</span></div>
         <div id="members-list">
@@ -126,20 +124,20 @@
     </aside>
 </div>
 
-<!-- Modal: tworzenie kanału -->
-<div id="modal-overlay" class="modal-overlay" style="display:none;" onclick="hideCreateRoom()">
-    <div class="modal" onclick="event.stopPropagation()">
-        <h3>Utwórz kanał głosowy</h3>
-        <p class="modal-sub">Podaj nazwę nowego kanału</p>
+<!-- MODAL: TWORZENIE NOWEGO SERWERA/POKOJU -->
+<div id="roomModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="document.getElementById('roomModal').style.display='none'">&times;</span>
+        <h2>Stwórz nowy serwer</h2>
         <div class="form-group">
-            <label>NAZWA KANAŁU</label>
-            <input id="new-room-name" type="text" placeholder="np. konsultacje-informatyka"
-                   onkeydown="if(event.key==='Enter') createRoom()">
+            <label>NAZWA SERWERA</label>
+            <input type="text" id="roomName" placeholder="np. Projekt Zespołowy - Grupa A">
         </div>
-        <div class="modal-actions">
-            <button class="btn-cancel" onclick="hideCreateRoom()">Anuluj</button>
-            <button class="btn-auth" onclick="createRoom()">Utwórz kanał</button>
+        <div class="form-group">
+            <label>OPIS (OPCJONALNIE)</label>
+            <textarea id="roomDesc" placeholder="O czym będziemy rozmawiać?"></textarea>
         </div>
+        <button id="submitRoomBtn" class="btn-auth">Stwórz serwer</button>
     </div>
 </div>
 

@@ -19,20 +19,23 @@ public class AuthService {
         this.jwtUtil = jwtUtil;
     }
 
-    // Dodaliśmy parametr 'role'
     public String register(String username, String password, String role) {
         if (userRepository.existsByUsername(username)) {
             throw new RuntimeException("Użytkownik już istnieje");
         }
 
-        // Tworzymy użytkownika i ustawiamy wszystkie pola
         User user = new User();
         user.setUsername(username);
         user.setPassword(passwordEncoder.encode(password));
-        user.setRole(role != null ? role : "STUDENT"); // Domyślnie Student jeśli rola jest pusta
+
+        // Upewniamy się, że rola jest zapisana dużymi literami (standard w Spring Security)
+        String userRole = (role != null && !role.isEmpty()) ? role.toUpperCase() : "STUDENT";
+        user.setRole(userRole);
 
         userRepository.save(user);
-        return jwtUtil.generateToken(username);
+
+        // KLUCZOWA ZMIANA: Przekazujemy username i role do tokena
+        return jwtUtil.generateToken(user.getUsername(), user.getRole());
     }
 
     public String login(String username, String password) {
@@ -43,6 +46,12 @@ public class AuthService {
             throw new RuntimeException("Nieprawidłowy login lub hasło");
         }
 
-        return jwtUtil.generateToken(username);
+        // KLUCZOWA ZMIANA: Przekazujemy username i role do tokena przy logowaniu
+        return jwtUtil.generateToken(user.getUsername(), user.getRole());
+    }
+
+    public User getUserByUsername(String username) {
+        return userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("Użytkownik nie znaleziony"));
     }
 }
