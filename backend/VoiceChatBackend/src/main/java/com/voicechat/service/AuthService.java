@@ -28,13 +28,11 @@ public class AuthService {
         user.setUsername(username);
         user.setPassword(passwordEncoder.encode(password));
 
-        // Upewniamy się, że rola jest zapisana dużymi literami (standard w Spring Security)
         String userRole = (role != null && !role.isEmpty()) ? role.toUpperCase() : "STUDENT";
         user.setRole(userRole);
 
         userRepository.save(user);
 
-        // KLUCZOWA ZMIANA: Przekazujemy username i role do tokena
         return jwtUtil.generateToken(user.getUsername(), user.getRole());
     }
 
@@ -46,7 +44,6 @@ public class AuthService {
             throw new RuntimeException("Nieprawidłowy login lub hasło");
         }
 
-        // KLUCZOWA ZMIANA: Przekazujemy username i role do tokena przy logowaniu
         return jwtUtil.generateToken(user.getUsername(), user.getRole());
     }
 

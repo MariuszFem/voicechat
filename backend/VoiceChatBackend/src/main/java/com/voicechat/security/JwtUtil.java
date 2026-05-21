@@ -12,7 +12,6 @@ import java.util.Date;
 public class JwtUtil {
 
     private static final long EXPIRATION_MS = 86400000; // 24h
-    // Stały klucz, żeby restart nie wylogowywał
     private final String SECRET = "moj-bardzo-dlugi-i-bezpieczny-klucz-do-aplikacji-voicechat-2026";
     private final SecretKey key = Keys.hmacShaKeyFor(SECRET.getBytes());
 

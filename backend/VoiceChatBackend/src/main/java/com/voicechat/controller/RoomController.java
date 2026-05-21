@@ -24,9 +24,7 @@ public class RoomController {
         try {
             String name = body.get("name");
             String description = body.get("description");
-
-            // FIX: Username comes from the JWT token, not the request body
-            // This prevents anyone from impersonating another user
+            // Username always from JWT, never from request body
             String username = SecurityContextHolder.getContext().getAuthentication().getName();
 
             Room room = roomService.createRoom(name, description, username);
@@ -37,28 +35,24 @@ public class RoomController {
         }
     }
 
-    @PostMapping("/join")
-    public ResponseEntity<?> joinRoom(@RequestBody Map<String, String> body) {
+    // JOIN by roomId — student clicks the room, no access code needed
+    @PostMapping("/join/{roomId}")
+    public ResponseEntity<?> joinRoom(@PathVariable Long roomId) {
         try {
-            String accessCode = body.get("accessCode");
-
-            // FIX: Username comes from the JWT token, not the request body
             String username = SecurityContextHolder.getContext().getAuthentication().getName();
-
-            Room room = roomService.joinRoom(accessCode, username);
+            Room room = roomService.joinRoom(roomId, username);
             return ResponseEntity.ok(room);
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
     }
 
-    @PostMapping("/leave")
-    public ResponseEntity<?> leaveRoom(@RequestBody Map<String, String> body) {
+    // LEAVE by roomId
+    @PostMapping("/leave/{roomId}")
+    public ResponseEntity<?> leaveRoom(@PathVariable Long roomId) {
         try {
-            String accessCode = body.get("accessCode");
             String username = SecurityContextHolder.getContext().getAuthentication().getName();
-
-            roomService.leaveRoom(accessCode, username);
+            roomService.leaveRoom(roomId, username);
             return ResponseEntity.ok(Map.of("message", "Opuszczono salę"));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
@@ -68,5 +62,12 @@ public class RoomController {
     @GetMapping("/all")
     public List<Room> getAllRooms() {
         return roomService.getAllRooms();
+    }
+
+    @GetMapping("/{roomId}")
+    public ResponseEntity<?> getRoom(@PathVariable Long roomId) {
+        return roomService.getRoom(roomId)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
     }
 }

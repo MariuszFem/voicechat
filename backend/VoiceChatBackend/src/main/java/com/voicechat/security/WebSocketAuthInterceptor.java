@@ -13,8 +13,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-// NEW FILE: Validates JWT when a user connects via WebSocket.
-// Without this, anyone could connect to /ws without being logged in.
 @Component
 public class WebSocketAuthInterceptor implements ChannelInterceptor {
 
@@ -29,7 +27,6 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
         StompHeaderAccessor accessor =
                 MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
 
-        // Only check on initial CONNECT, not every message
         if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
             String authHeader = accessor.getFirstNativeHeader("Authorization");
 
@@ -53,7 +50,6 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
                     List.of(new SimpleGrantedAuthority(roleWithPrefix))
             );
 
-            // Attach the authenticated user to the WebSocket session
             accessor.setUser(auth);
         }
 

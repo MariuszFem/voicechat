@@ -5,19 +5,19 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
-@Table(name = "room") // Dobra praktyka: jawne wskazanie nazwy tabeli
+@Table(name = "room")
 public class Room {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "room_id") // KLUCZOWE: Mapujemy pole 'id' na kolumnę 'ROOM_ID' w bazie
+    @Column(name = "room_id")
     private Long id;
 
     private String name;
     private String description;
     private String accessCode;
 
-    @Column(name = "owner_id") // Mapujemy na owner_id, żeby pasowało do zapytania SQL
+    @Column(name = "owner_id")
     private Long ownerId;
 
     @ElementCollection
@@ -34,9 +34,7 @@ public class Room {
         this.ownerId = ownerId;
     }
 
-    // Gettery i Settery
     public Long getId() { return id; }
-    // Nie dodajemy setId, bo baza sama generuje ID
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }

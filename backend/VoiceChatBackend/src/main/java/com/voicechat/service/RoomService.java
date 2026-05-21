@@ -7,6 +7,7 @@ import com.voicechat.repository.UserRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -27,17 +28,15 @@ public class RoomService {
         room.setName(name);
         room.setDescription(description);
         room.setOwnerId(user != null ? user.getId() : 1L);
-
-        // FIX: generateCode now checks for duplicates
-        room.setAccessCode(generateCode());
+        room.setAccessCode(generateCode()); // kept for future access-code flow
 
         return roomRepository.save(room);
     }
 
-    public Room joinRoom(String accessCode, String username) {
-        // FIX: No longer loads all rooms — uses indexed query
-        Room room = roomRepository.findByAccessCode(accessCode)
-                .orElseThrow(() -> new RuntimeException("Nieprawidłowy kod sali"));
+    // Join by roomId — no access code needed
+    public Room joinRoom(Long roomId, String username) {
+        Room room = roomRepository.findById(roomId)
+                .orElseThrow(() -> new RuntimeException("Sala nie istnieje"));
 
         if (!room.getAttendanceList().contains(username)) {
             room.getAttendanceList().add(username);
@@ -46,15 +45,15 @@ public class RoomService {
         return roomRepository.save(room);
     }
 
-    // FIX: Remove user from attendance list when they leave/disconnect
-    public void leaveRoom(String accessCode, String username) {
-        roomRepository.findByAccessCode(accessCode).ifPresent(room -> {
+    // Leave by roomId
+    public void leaveRoom(Long roomId, String username) {
+        roomRepository.findById(roomId).ifPresent(room -> {
             room.getAttendanceList().remove(username);
             roomRepository.save(room);
         });
     }
 
-    // Remove user from ALL rooms (used on WebSocket disconnect)
+    // Called on WebSocket disconnect — removes user from every room
     public void removeUserFromAllRooms(String username) {
         List<Room> rooms = roomRepository.findAll();
         for (Room room : rooms) {
@@ -68,7 +67,10 @@ public class RoomService {
         return roomRepository.findAll();
     }
 
-    // FIX: Keeps generating until a unique code is found
+    public Optional<Room> getRoom(Long roomId) {
+        return roomRepository.findById(roomId);
+    }
+
     private String generateCode() {
         String code;
         do {

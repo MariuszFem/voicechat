@@ -28,14 +28,18 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/register", "/api/auth/login",
-                                "/ws/**", "/h2-console/**",
-                                "/", "/index.html", "/app.js", "/style.css").permitAll()
-                        // FIX: Only teachers can create a new teacher account
-                        .requestMatchers("/api/auth/register-teacher").hasRole("TEACHER")
+                        .requestMatchers(
+                                "/api/auth/register",
+                                "/api/auth/login",
+                                "/ws/**",
+                                "/h2-console/**",
+                                "/", "/index.html", "/app.js", "/style.css"
+                        ).permitAll()
+                        // Only teachers can create rooms or register new teachers
                         .requestMatchers("/api/rooms/create").hasRole("TEACHER")
-                        .requestMatchers("/api/rooms/join", "/api/rooms/leave",
-                                "/api/rooms/all").authenticated()
+                        .requestMatchers("/api/auth/register-teacher").hasRole("TEACHER")
+                        // Any logged-in user can join, leave, or list rooms
+                        .requestMatchers("/api/rooms/**").authenticated()
                         .anyRequest().authenticated()
                 )
                 .headers(h -> h.frameOptions(f -> f.disable()))

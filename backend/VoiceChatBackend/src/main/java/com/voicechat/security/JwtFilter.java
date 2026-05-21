@@ -37,7 +37,6 @@ public class JwtFilter extends OncePerRequestFilter {
 
                     if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
 
-                        // KLUCZOWA ZMIANA: Wymuszamy prefiks "ROLE_", tak jak lubi Spring
                         String roleWithPrefix = role.startsWith("ROLE_") ? role : "ROLE_" + role;
 
                         var authority = new SimpleGrantedAuthority(roleWithPrefix);

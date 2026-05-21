@@ -14,10 +14,6 @@ public class SignalController {
         this.messagingTemplate = messagingTemplate;
     }
 
-    // FIX: Was broadcasting to ALL users in ALL rooms before.
-    // Now each room gets its own topic: /topic/signal/{roomId}
-    // Frontend must subscribe to /topic/signal/{roomId}
-    // and send signals to /app/signal/{roomId}
     @MessageMapping("/signal/{roomId}")
     public void handleSignal(@DestinationVariable String roomId, String jsonMessage) {
         messagingTemplate.convertAndSend("/topic/signal/" + roomId, jsonMessage);
