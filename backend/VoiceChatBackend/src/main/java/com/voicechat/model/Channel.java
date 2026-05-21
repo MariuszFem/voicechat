@@ -1,6 +1,7 @@
 package com.voicechat.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -28,19 +29,20 @@ public class Channel {
     @JsonIgnore
     private Room room;
 
-    // convenience field for JSON responses
-    private String roomId;
-
     public Channel() {}
 
     public Channel(String name, Room room) {
         this.name = name;
         this.room = room;
-        this.roomId = room.getRoomId();
     }
 
     public Long getId() { return id; }
     public String getName() { return name; }
     public Room getRoom() { return room; }
-    public String getRoomId() { return roomId; }
+
+    // Zwraca roomId w JSON bez osobnego pola w bazie
+    @JsonProperty("roomId")
+    public String getRoomId() {
+        return room != null ? room.getRoomId() : null;
+    }
 }
