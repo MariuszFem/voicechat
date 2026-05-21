@@ -1,0 +1,24 @@
+# Maven
+target/
+*.jar
+*.war
+
+# Baza H2 (dane lokalne)
+data/
+
+# IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# VS Code
+.vscode/
+
+# System
+.DS_Store
+Thumbs.db
+
+# Logi
+*.log
+logs/

@@ -1,53 +1,44 @@
 package com.voicechat.model;
 
-import jakarta.persistence.*;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.Table;
+
 @Entity
-@Table(name = "room")
+@Table(name = "rooms")
 public class Room {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "room_id")
-    private Long id;
+    private String roomId;
 
+    @Column(nullable = false)
     private String name;
-    private String description;
-    private String accessCode;
 
-    @Column(name = "owner_id")
-    private Long ownerId;
+    private String ownerUsername;
 
-    @ElementCollection
-    @CollectionTable(name = "room_attendance", joinColumns = @JoinColumn(name = "room_id"))
-    @Column(name = "username")
-    private List<String> attendanceList = new ArrayList<>();
+    private LocalDateTime createdAt = LocalDateTime.now();
+
+    @OneToMany(mappedBy = "room", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Channel> channels = new ArrayList<>();
 
     public Room() {}
 
-    public Room(String name, String description, String accessCode, Long ownerId) {
+    public Room(String roomId, String name, String ownerUsername) {
+        this.roomId = roomId;
         this.name = name;
-        this.description = description;
-        this.accessCode = accessCode;
-        this.ownerId = ownerId;
+        this.ownerUsername = ownerUsername;
     }
 
-    public Long getId() { return id; }
-
+    public String getRoomId() { return roomId; }
     public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-
-    public String getDescription() { return description; }
-    public void setDescription(String description) { this.description = description; }
-
-    public String getAccessCode() { return accessCode; }
-    public void setAccessCode(String accessCode) { this.accessCode = accessCode; }
-
-    public Long getOwnerId() { return ownerId; }
-    public void setOwnerId(Long ownerId) { this.ownerId = ownerId; }
-
-    public List<String> getAttendanceList() { return attendanceList; }
-    public void setAttendanceList(List<String> attendanceList) { this.attendanceList = attendanceList; }
+    public String getOwnerUsername() { return ownerUsername; }
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public List<Channel> getChannels() { return channels; }
 }

@@ -1,10 +1,11 @@
 package com.voicechat.service;
 
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
 import com.voicechat.model.User;
 import com.voicechat.repository.UserRepository;
 import com.voicechat.security.JwtUtil;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.stereotype.Service;
 
 @Service
 public class AuthService {
@@ -19,36 +20,24 @@ public class AuthService {
         this.jwtUtil = jwtUtil;
     }
 
-    public String register(String username, String password, String role) {
+    public record AuthResult(String token, String username, String role) {}
+
+    public AuthResult register(String username, String password, String role) {
         if (userRepository.existsByUsername(username)) {
             throw new RuntimeException("Użytkownik już istnieje");
         }
-
-        User user = new User();
-        user.setUsername(username);
-        user.setPassword(passwordEncoder.encode(password));
-
-        String userRole = (role != null && !role.isEmpty()) ? role.toUpperCase() : "STUDENT";
-        user.setRole(userRole);
-
+        String normalizedRole = "TEACHER".equalsIgnoreCase(role) ? "TEACHER" : "STUDENT";
+        User user = new User(username, passwordEncoder.encode(password), normalizedRole);
         userRepository.save(user);
-
-        return jwtUtil.generateToken(user.getUsername(), user.getRole());
+        return new AuthResult(jwtUtil.generateToken(username, normalizedRole), username, normalizedRole);
     }
 
-    public String login(String username, String password) {
+    public AuthResult login(String username, String password) {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("Nieprawidłowy login lub hasło"));
-
         if (!passwordEncoder.matches(password, user.getPassword())) {
             throw new RuntimeException("Nieprawidłowy login lub hasło");
         }
-
-        return jwtUtil.generateToken(user.getUsername(), user.getRole());
-    }
-
-    public User getUserByUsername(String username) {
-        return userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("Użytkownik nie znaleziony"));
+        return new AuthResult(jwtUtil.generateToken(username, user.getRole()), username, user.getRole());
     }
 }

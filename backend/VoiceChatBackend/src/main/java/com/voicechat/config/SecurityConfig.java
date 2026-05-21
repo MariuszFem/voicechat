@@ -1,6 +1,5 @@
 package com.voicechat.config;
 
-import com.voicechat.security.JwtFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -10,6 +9,8 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+import com.voicechat.security.JwtFilter;
 
 @Configuration
 @EnableWebSecurity
@@ -21,35 +22,34 @@ public class SecurityConfig {
         this.jwtFilter = jwtFilter;
     }
 
-    @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-        http
-                .cors(cors -> cors.configure(http))
-                .csrf(csrf -> csrf.disable())
-                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(
-                                "/api/auth/register",
-                                "/api/auth/login",
-                                "/ws/**",
-                                "/h2-console/**",
-                                "/", "/index.html", "/app.js", "/style.css"
-                        ).permitAll()
-                        // Only teachers can create rooms or register new teachers
-                        .requestMatchers("/api/rooms/create").hasRole("TEACHER")
-                        .requestMatchers("/api/auth/register-teacher").hasRole("TEACHER")
-                        // Any logged-in user can join, leave, or list rooms
-                        .requestMatchers("/api/rooms/**").authenticated()
-                        .anyRequest().authenticated()
-                )
-                .headers(h -> h.frameOptions(f -> f.disable()))
-                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
-
-        return http.build();
-    }
-
+    // ROZWIĄZANIE: Dodajemy brakujący komponent, którego szuka AuthService
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+                .csrf(csrf -> csrf.disable())
+                .cors(cors -> cors.disable())
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth
+                        // Endpointy całkowicie publiczne
+                        .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers("/", "/index.html", "/static/**", "/style.css", "/app.js", "/favicon.ico").permitAll()
+
+                        // Endpoint WebSocket (autoryzacja tokenu wewnątrz interceptora)
+                        .requestMatchers("/ws/**").permitAll()
+
+                        // Pełny dostęp dla zalogowanych do zarządzania pokojami (pobieranie, tworzenie, dołączanie, opuszczanie)
+                        .requestMatchers("/api/rooms/**").authenticated()
+
+                        // Wszelkie inne zapytania
+                        .anyRequest().authenticated()
+                )
+                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
+
+        return http.build();
     }
 }

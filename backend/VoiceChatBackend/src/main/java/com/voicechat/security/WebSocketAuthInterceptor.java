@@ -1,5 +1,8 @@
 package com.voicechat.security;
 
+import java.util.List;
+import java.util.Map;
+
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessagingException;
@@ -10,8 +13,6 @@ import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.stereotype.Component;
-
-import java.util.List;
 
 @Component
 public class WebSocketAuthInterceptor implements ChannelInterceptor {
@@ -26,6 +27,14 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
         StompHeaderAccessor accessor =
                 MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
+
+        if (accessor != null && StompCommand.SEND.equals(accessor.getCommand())) {
+            String dest = accessor.getDestination();
+            Map<String, Object> attrs = accessor.getSessionAttributes();
+            if (dest != null && dest.startsWith("/topic/voice/") && attrs != null) {
+                attrs.put("channelId", dest.replace("/topic/voice/", ""));
+            }
+        }
 
         if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
             String authHeader = accessor.getFirstNativeHeader("Authorization");
@@ -51,6 +60,12 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
             );
 
             accessor.setUser(auth);
+
+            String senderId = accessor.getFirstNativeHeader("senderId");
+            Map<String, Object> attrs = accessor.getSessionAttributes();
+            if (senderId != null && attrs != null) {
+                attrs.put("senderId", senderId);
+            }
         }
 
         return message;

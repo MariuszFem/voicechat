@@ -1,19 +1,22 @@
 package com.voicechat.security;
 
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.security.Keys;
-import org.springframework.stereotype.Component;
+import java.util.Date;
 
 import javax.crypto.SecretKey;
-import java.util.Date;
+
+import org.springframework.stereotype.Component;
+
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.security.Keys;
 
 @Component
 public class JwtUtil {
 
     private static final long EXPIRATION_MS = 86400000; // 24h
-    private final String SECRET = "moj-bardzo-dlugi-i-bezpieczny-klucz-do-aplikacji-voicechat-2026";
-    private final SecretKey key = Keys.hmacShaKeyFor(SECRET.getBytes());
+    private final SecretKey key = Keys.secretKeyFor(SignatureAlgorithm.HS256);
 
     public String generateToken(String username, String role) {
         return Jwts.builder()
@@ -26,27 +29,24 @@ public class JwtUtil {
     }
 
     public String extractUsername(String token) {
-        return extractAllClaims(token).getSubject();
+        return getClaims(token).getSubject();
     }
 
     public String extractRole(String token) {
-        return extractAllClaims(token).get("role", String.class);
+        return getClaims(token).get("role", String.class);
     }
 
     public boolean isValid(String token) {
         try {
             Jwts.parser().verifyWith(key).build().parseSignedClaims(token);
             return true;
-        } catch (Exception e) {
+        } catch (JwtException e) {
             return false;
         }
     }
 
-    private Claims extractAllClaims(String token) {
-        return Jwts.parser()
-                .verifyWith(key)
-                .build()
-                .parseSignedClaims(token)
-                .getPayload();
+    private Claims getClaims(String token) {
+        return Jwts.parser().verifyWith(key).build()
+                .parseSignedClaims(token).getPayload();
     }
 }
