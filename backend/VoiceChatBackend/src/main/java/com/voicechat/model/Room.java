@@ -4,6 +4,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -26,6 +28,7 @@ public class Room {
     private LocalDateTime createdAt = LocalDateTime.now();
 
     @OneToMany(mappedBy = "room", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore
     private List<Channel> channels = new ArrayList<>();
 
     public Room() {}
@@ -40,5 +43,7 @@ public class Room {
     public String getName() { return name; }
     public String getOwnerUsername() { return ownerUsername; }
     public LocalDateTime getCreatedAt() { return createdAt; }
+
+    @JsonIgnore
     public List<Channel> getChannels() { return channels; }
 }

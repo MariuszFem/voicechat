@@ -119,8 +119,12 @@ async function loadRooms() {
         const res = await fetch('/api/rooms', {
             headers: { 'Authorization': 'Bearer ' + token }
         });
+        if (!res.ok) {
+            console.error('loadRooms HTTP error:', res.status, await res.text());
+            return;
+        }
         const rooms = await res.json();
-        renderRooms(rooms);
+        renderRooms(Array.isArray(rooms) ? rooms : []);
     } catch (e) {
         console.error('Błąd ładowania pokojów', e);
     }
@@ -128,7 +132,6 @@ async function loadRooms() {
 
 function renderRooms(rooms) {
     const bar = document.getElementById('servers-bar');
-    // usuń stare ikony pokojów (zostaw divider i przycisk +)
     bar.querySelectorAll('.server-icon:not(.add-server)').forEach(el => el.remove());
 
     const divider = bar.querySelector('.server-divider');
@@ -138,21 +141,18 @@ function renderRooms(rooms) {
         el.className = 'server-icon';
         el.title = room.name;
         el.innerText = room.name.charAt(0).toUpperCase();
-        el.onclick = () => selectRoom(room.roomId, room.name);
+        el.onclick = (e) => selectRoom(room.roomId, room.name, e.currentTarget);
         bar.insertBefore(el, divider);
     });
 }
 
-async function selectRoom(roomId, roomName) {
+async function selectRoom(roomId, roomName, el) {
     currentRoomId = roomId;
 
-    // podświetl aktywny pokój
-    document.querySelectorAll('.server-icon:not(.add-server)').forEach(el => el.classList.remove('active'));
-    event.currentTarget.classList.add('active');
+    document.querySelectorAll('.server-icon:not(.add-server)').forEach(e => e.classList.remove('active'));
+    if (el) el.classList.add('active');
 
     document.getElementById('room-header-name').innerText = roomName;
-
-    // pokaż przycisk dodawania kanału tylko nauczycielowi
     document.getElementById('btn-add-channel').style.display = myRole === 'TEACHER' ? 'inline' : 'none';
 
     await loadChannels(roomId);
