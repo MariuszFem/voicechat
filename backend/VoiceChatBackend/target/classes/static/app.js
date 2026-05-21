@@ -13,6 +13,7 @@ const myId = Math.random().toString(36).substring(7);
 let myUsername = '';
 let myRole = '';     // 'STUDENT' | 'TEACHER'
 let selectedRole = 'STUDENT';
+let currentRoomOwner = '';
 
 const rtcConfig = {
     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
@@ -130,6 +131,8 @@ async function loadRooms() {
     }
 }
 
+let currentRoomOwner = '';
+
 function renderRooms(rooms) {
     const bar = document.getElementById('servers-bar');
     bar.querySelectorAll('.server-icon:not(.add-server)').forEach(el => el.remove());
@@ -141,18 +144,21 @@ function renderRooms(rooms) {
         el.className = 'server-icon';
         el.title = room.name;
         el.innerText = room.name.charAt(0).toUpperCase();
-        el.onclick = (e) => selectRoom(room.roomId, room.name, e.currentTarget);
+        el.onclick = (e) => selectRoom(room.roomId, room.name, room.ownerUsername, e.currentTarget);
         bar.insertBefore(el, divider);
     });
 }
 
-async function selectRoom(roomId, roomName, el) {
+async function selectRoom(roomId, roomName, ownerUsername, el) {
     currentRoomId = roomId;
+    currentRoomOwner = ownerUsername;
 
     document.querySelectorAll('.server-icon:not(.add-server)').forEach(e => e.classList.remove('active'));
     if (el) el.classList.add('active');
 
     document.getElementById('room-header-name').innerText = roomName;
+
+    // Teacher zawsze może dodawać kanały
     document.getElementById('btn-add-channel').style.display = myRole === 'TEACHER' ? 'inline' : 'none';
 
     await loadChannels(roomId);
@@ -160,11 +166,19 @@ async function selectRoom(roomId, roomName, el) {
 
 async function loadChannels(roomId) {
     const token = localStorage.getItem('jwt_token');
-    const res = await fetch(`/api/rooms/${roomId}/channels`, {
-        headers: { 'Authorization': 'Bearer ' + token }
-    });
-    const channels = await res.json();
-    renderChannels(channels);
+    try {
+        const res = await fetch(`/api/rooms/${roomId}/channels`, {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (!res.ok) {
+            console.error('loadChannels error:', res.status, await res.text());
+            return;
+        }
+        const channels = await res.json();
+        renderChannels(Array.isArray(channels) ? channels : []);
+    } catch (e) {
+        console.error('loadChannels fetch error:', e);
+    }
 }
 
 function renderChannels(channels) {
@@ -218,7 +232,8 @@ async function createRoom() {
 
 async function createChannel() {
     const name = document.getElementById('new-channel-name').value.trim();
-    if (!name || !currentRoomId) return;
+    if (!name) return;
+    if (!currentRoomId) { alert('Najpierw wybierz pokój!'); return; }
     const token = localStorage.getItem('jwt_token');
     const res = await fetch(`/api/rooms/${currentRoomId}/channels`, {
         method: 'POST',
@@ -229,6 +244,9 @@ async function createChannel() {
         hideModal('modal-channel');
         document.getElementById('new-channel-name').value = '';
         await loadChannels(currentRoomId);
+    } else {
+        const err = await res.json().catch(() => ({}));
+        alert('Błąd: ' + (err.error || res.status));
     }
 }
 
