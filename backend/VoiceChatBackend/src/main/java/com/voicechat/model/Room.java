@@ -23,6 +23,8 @@ public class Room {
     @Column(nullable = false)
     private String name;
 
+    private String description;
+
     private String ownerUsername;
 
     private LocalDateTime createdAt = LocalDateTime.now();
@@ -39,8 +41,18 @@ public class Room {
         this.ownerUsername = ownerUsername;
     }
 
+    public Room(String roomId, String name, String description, String ownerUsername) {
+        this.roomId = roomId;
+        this.name = name;
+        this.description = description;
+        this.ownerUsername = ownerUsername;
+    }
+
     public String getRoomId() { return roomId; }
     public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
     public String getOwnerUsername() { return ownerUsername; }
     public LocalDateTime getCreatedAt() { return createdAt; }
 

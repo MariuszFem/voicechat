@@ -90,6 +90,7 @@
                 <div class="user-name" id="panel-username">---</div>
                 <div class="user-role" id="panel-role">---</div>
             </div>
+            <button class="icon-btn" title="Ustawienia" onclick="openSettings()">⚙️</button>
             <button class="icon-btn" title="Wyloguj" onclick="logout()">⏻</button>
         </div>
     </aside>
@@ -129,6 +130,9 @@
     <aside class="members-panel">
         <div class="members-title">UCZESTNICY — <span id="member-count">0</span></div>
         <div id="members-list"></div>
+        <div id="attendance-btn-wrap" style="display:none; padding: 8px;">
+            <button class="btn-attendance" onclick="loadAttendance()">📋 Lista obecności</button>
+        </div>
     </aside>
 </div>
 
@@ -141,6 +145,10 @@
             <label>NAZWA POKOJU</label>
             <input id="new-room-name" type="text" placeholder="np. Informatyka sem. 3"
                    onkeydown="if(event.key==='Enter') createRoom()">
+        </div>
+        <div class="form-group">
+            <label>OPIS (opcjonalnie)</label>
+            <input id="new-room-desc" type="text" placeholder="np. Zajęcia z dr. Kowalskim">
         </div>
         <div class="modal-actions">
             <button class="btn-cancel" onclick="hideModal('modal-room')">Anuluj</button>
@@ -167,6 +175,41 @@
 </div>
 
 <audio id="remoteAudio" autoplay></audio>
+
+<!-- Modal: ustawienia konta -->
+<div id="modal-settings" class="modal-overlay" style="display:none;" onclick="hideModal('modal-settings')">
+    <div class="modal" onclick="event.stopPropagation()">
+        <h3>⚙️ Ustawienia konta</h3>
+        <p class="modal-sub" id="settings-info"></p>
+        <div class="form-group" style="margin-top:16px;">
+            <label>STARE HASŁO</label>
+            <input id="old-password" type="password" placeholder="••••••••">
+        </div>
+        <div class="form-group">
+            <label>NOWE HASŁO</label>
+            <input id="new-password" type="password" placeholder="min. 4 znaki">
+        </div>
+        <div id="settings-error" class="auth-error" style="display:none;"></div>
+        <div id="settings-ok" style="display:none; color:var(--success); font-size:13px; margin-top:8px;">✓ Hasło zmienione</div>
+        <div class="modal-actions">
+            <button class="btn-cancel" onclick="hideModal('modal-settings')">Zamknij</button>
+            <button class="btn-auth" onclick="changePassword()">Zmień hasło</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: lista obecności -->
+<div id="modal-attendance" class="modal-overlay" style="display:none;" onclick="hideModal('modal-attendance')">
+    <div class="modal" onclick="event.stopPropagation()" style="max-width:560px;">
+        <h3>📋 Lista obecności</h3>
+        <p class="modal-sub" id="attendance-room-name"></p>
+        <div id="attendance-list" style="max-height:320px; overflow-y:auto; margin-top:12px;"></div>
+        <div class="modal-actions">
+            <button class="btn-auth" onclick="hideModal('modal-attendance')">Zamknij</button>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
 <script src="app.js"></script>

@@ -21,13 +21,35 @@ public class RoomService {
         this.channelRepository = channelRepository;
     }
 
-    public Room createRoom(String name, String ownerUsername) {
+    public Room createRoom(String name, String description, String ownerUsername) {
         String roomId = UUID.randomUUID().toString().substring(0, 8);
-        Room room = new Room(roomId, name, ownerUsername);
+        Room room = new Room(roomId, name, description, ownerUsername);
         room = roomRepository.save(room);
-        // domyślny kanał głosowy
         channelRepository.save(new Channel("ogólny", room));
         return room;
+    }
+
+    // backward compat
+    public Room createRoom(String name, String ownerUsername) {
+        return createRoom(name, "", ownerUsername);
+    }
+
+    public Room updateRoom(String roomId, String name, String description, String requesterUsername) {
+        Room room = getRoom(roomId);
+        if (!room.getOwnerUsername().equals(requesterUsername)) {
+            throw new RuntimeException("Brak uprawnień do edycji tego pokoju");
+        }
+        if (name != null && !name.isBlank()) room.setName(name);
+        if (description != null) room.setDescription(description);
+        return roomRepository.save(room);
+    }
+
+    public void deleteRoom(String roomId, String requesterUsername) {
+        Room room = getRoom(roomId);
+        if (!room.getOwnerUsername().equals(requesterUsername)) {
+            throw new RuntimeException("Brak uprawnień do usunięcia tego pokoju");
+        }
+        roomRepository.delete(room);
     }
 
     public List<Room> getAllRooms() {

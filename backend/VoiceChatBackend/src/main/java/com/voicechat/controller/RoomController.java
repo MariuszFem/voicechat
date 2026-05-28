@@ -5,9 +5,11 @@ import java.util.Map;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -37,8 +39,31 @@ public class RoomController {
         if (name == null || name.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Podaj nazwę pokoju"));
         }
-        Room room = roomService.createRoom(name, auth.getName());
+        String description = body.getOrDefault("description", "");
+        Room room = roomService.createRoom(name, description, auth.getName());
         return ResponseEntity.ok(room);
+    }
+
+    @PutMapping("/{roomId}")
+    public ResponseEntity<?> updateRoom(@PathVariable String roomId,
+                                        @RequestBody Map<String, String> body,
+                                        Authentication auth) {
+        try {
+            Room room = roomService.updateRoom(roomId, body.get("name"), body.get("description"), auth.getName());
+            return ResponseEntity.ok(room);
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @DeleteMapping("/{roomId}")
+    public ResponseEntity<?> deleteRoom(@PathVariable String roomId, Authentication auth) {
+        try {
+            roomService.deleteRoom(roomId, auth.getName());
+            return ResponseEntity.ok(Map.of("status", "Pokój usunięty"));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 
     @GetMapping("/{roomId}/channels")

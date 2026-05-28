@@ -9,7 +9,7 @@
 </head>
 <body>
 
-<!-- AUTH -->
+<!-- ===== AUTH ===== -->
 <div id="auth-screen" class="auth-wrapper">
     <div class="auth-box">
         <div class="auth-logo">
@@ -25,7 +25,8 @@
 
         <div class="form-group">
             <label>NAZWA UŻYTKOWNIKA</label>
-            <input id="auth-username" type="text" placeholder="np. jan.kowalski">
+            <input id="auth-username" type="text" placeholder="np. jan.kowalski"
+                   onkeydown="if(event.key==='Enter') submitAuth()">
         </div>
         <div class="form-group">
             <label>HASŁO</label>
@@ -33,15 +34,14 @@
                    onkeydown="if(event.key==='Enter') submitAuth()">
         </div>
 
-        <!-- Rola - widoczna tylko przy rejestracji -->
         <div class="form-group" id="role-group" style="display:none;">
             <label>ROLA</label>
             <div class="role-picker">
-                <div class="role-option active" id="role-student" onclick="selectRole('STUDENT')">
+                <div class="role-option active" id="role-opt-student" onclick="selectRole('STUDENT')">
                     <span class="role-icon">🎒</span>
                     <span>Student</span>
                 </div>
-                <div class="role-option" id="role-teacher" onclick="selectRole('TEACHER')">
+                <div class="role-option" id="role-opt-teacher" onclick="selectRole('TEACHER')">
                     <span class="role-icon">👨‍🏫</span>
                     <span>Wykładowca</span>
                 </div>
@@ -54,37 +54,36 @@
 
         <p class="auth-switch">
             <span id="auth-switch-text">Nie masz konta?</span>
-            <a href="#" id="auth-switch-link" onclick="switchTab(); return false;"> Zarejestruj się</a>
+            <a href="#" onclick="switchAuthTab(); return false;" id="auth-switch-link"> Zarejestruj się</a>
         </p>
     </div>
 </div>
 
-<!-- APP -->
+<!-- ===== APP ===== -->
 <div id="app" style="display:none;" class="app-layout">
 
-    <!-- Lewa kolumna: pokoje (serwery) -->
+    <!-- Lewa kolumna: pokoje -->
     <nav class="servers-bar" id="servers-bar">
-        <!-- wypełniane przez JS -->
         <div class="server-divider"></div>
-        <div class="server-icon add-server" id="btn-add-room" title="Utwórz pokój" onclick="showCreateRoomModal()">+</div>
+        <div class="server-icon add-server" id="btn-add-room" style="display:none;"
+             title="Utwórz pokój" onclick="showModal('modal-room')">+</div>
     </nav>
 
     <!-- Panel kanałów -->
     <aside class="channels-panel">
-        <div class="server-header" id="room-header">
+        <div class="server-header">
             <span id="room-header-name">Wybierz pokój</span>
         </div>
-
         <div class="channel-section">
             <div class="channel-section-title">
                 <span>KANAŁY GŁOSOWE</span>
-                <span class="add-channel" id="btn-add-channel" onclick="showCreateChannelModal()" title="Dodaj kanał" style="display:none;">+</span>
+                <span class="add-channel" id="btn-add-channel" style="display:none;"
+                      onclick="showModal('modal-channel')" title="Dodaj kanał">+</span>
             </div>
             <div id="channel-list">
                 <div class="channels-empty">← Wybierz pokój</div>
             </div>
         </div>
-
         <div class="user-panel">
             <div class="user-avatar" id="user-avatar-icon">?</div>
             <div class="user-info">
@@ -99,8 +98,8 @@
     <main class="main-panel">
         <div id="idle-view" class="idle-view">
             <div class="idle-icon">🎓</div>
-            <h2 id="idle-title">Witaj w EduConnect</h2>
-            <p id="idle-sub">Wybierz pokój i kanał, aby dołączyć do zajęć.</p>
+            <h2>Witaj w EduConnect</h2>
+            <p>Wybierz pokój i kanał, aby dołączyć do zajęć.</p>
         </div>
 
         <div id="voice-view" style="display:none;" class="voice-view">
@@ -108,16 +107,11 @@
                 <span class="voice-channel-icon">🔊</span>
                 <span id="voice-channel-name">kanał</span>
                 <div class="live-pill">NA ŻYWO</div>
-                <!-- Przycisk udostępniania ekranu - tylko dla studentów i nauczycieli -->
-                <button class="header-btn" id="btn-share-screen" onclick="toggleScreenShare()" title="Udostępnij ekran">🖥️ Udostępnij ekran</button>
+                <button class="header-btn" id="btn-share-screen" onclick="toggleScreenShare()">🖥️ Udostępnij ekran</button>
             </div>
 
-            <!-- Siatka uczestników -->
-            <div class="participants-grid" id="participants-grid">
-                <!-- karty uczestników generowane przez JS -->
-            </div>
+            <div class="participants-grid" id="participants-grid"></div>
 
-            <!-- Podgląd udostępnionych ekranów (widoczny dla nauczyciela + właściciela streamu) -->
             <div id="screens-area" class="screens-area" style="display:none;">
                 <div class="screens-title">📺 Udostępnione ekrany</div>
                 <div id="screens-grid" class="screens-grid"></div>
@@ -126,7 +120,7 @@
             <div class="voice-controls">
                 <button class="ctrl-btn" id="mute-btn" onclick="toggleMute()" title="Mikrofon">🎤</button>
                 <button class="ctrl-btn" id="cam-btn" onclick="toggleCamera()" title="Kamera">📷</button>
-                <button class="ctrl-btn danger" onclick="leaveRoom()" title="Rozłącz">📵</button>
+                <button class="ctrl-btn danger" onclick="leaveVoice()" title="Rozłącz">📵</button>
             </div>
         </div>
     </main>
