@@ -9,14 +9,15 @@ import org.springframework.stereotype.Component;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
 
 @Component
 public class JwtUtil {
 
     private static final long EXPIRATION_MS = 86400000; // 24h
-    private final SecretKey key = Keys.secretKeyFor(SignatureAlgorithm.HS256);
+    // Stały klucz - nie zmienia się po restarcie serwera
+    private static final String SECRET = "EduConnectVoiceChatSecretKey2026EduConnectVoiceChatSecretKey2026";
+    private final SecretKey key = Keys.hmacShaKeyFor(SECRET.getBytes(java.nio.charset.StandardCharsets.UTF_8));
 
     public String generateToken(String username, String role) {
         return Jwts.builder()

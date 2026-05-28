@@ -19,7 +19,21 @@ let isSharingScreen = false;
 let authTab = 'login';
 let selectedRole = 'STUDENT';
 
-const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+const rtcConfig = {
+    iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        {
+            urls: 'turn:openrelay.metered.ca:80',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+        },
+        {
+            urls: 'turn:openrelay.metered.ca:443',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+        }
+    ]
+};
 
 // ============================================================
 // INIT
@@ -108,6 +122,9 @@ async function showApp() {
 
     // Tylko teacher może tworzyć pokoje
     document.getElementById('btn-add-room').style.display = myRole === 'TEACHER' ? 'flex' : 'none';
+    // Przycisk listy obecności tylko dla teachera
+    const attWrap = document.getElementById('attendance-btn-wrap');
+    if (attWrap) attWrap.style.display = myRole === 'TEACHER' ? 'block' : 'none';
 
     await loadRooms();
 }
@@ -214,17 +231,20 @@ function hideModal(id) {
 
 async function createRoom() {
     const name = document.getElementById('new-room-name').value.trim();
+    const description = document.getElementById('new-room-desc')?.value.trim() || '';
     if (!name) return;
     const token = localStorage.getItem('jwt_token');
     try {
         const res = await fetch('/api/rooms', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-            body: JSON.stringify({ name })
+            body: JSON.stringify({ name, description })
         });
         if (res.ok) {
             hideModal('modal-room');
             document.getElementById('new-room-name').value = '';
+            if (document.getElementById('new-room-desc'))
+                document.getElementById('new-room-desc').value = '';
             await loadRooms();
         } else {
             const err = await res.json().catch(() => ({}));
@@ -298,12 +318,14 @@ async function joinVoice(channelId, channelName) {
         if (videoEl) videoEl.srcObject = localStream;
 
         sendSignal({ type: 'join', username: myUsername, role: myRole });
+        await recordJoin(currentRoomId, channelId);
 
     }, err => { console.error('STOMP error', err); alert('Błąd połączenia WebSocket!'); });
 }
 
 async function leaveVoice() {
     if (stompClient) sendSignal({ type: 'leave' });
+    if (currentRoomId) await recordLeave(currentRoomId);
 
     if (screenStream) { screenStream.getTracks().forEach(t => t.stop()); screenStream = null; }
     if (localStream)  { localStream.getTracks().forEach(t => t.stop());  localStream  = null; }
@@ -525,4 +547,120 @@ function addMemberItem(peerId, username, role) {
 function updateMemberCount() {
     document.getElementById('member-count').innerText =
         document.getElementById('participants-grid').children.length;
+}
+
+// ============================================================
+// USTAWIENIA KONTA
+// ============================================================
+function openSettings() {
+    document.getElementById('settings-info').innerText =
+        'Zalogowany jako: ' + myUsername + ' (' + (myRole === 'TEACHER' ? 'Wykładowca' : 'Student') + ')';
+    document.getElementById('settings-error').style.display = 'none';
+    document.getElementById('settings-ok').style.display    = 'none';
+    document.getElementById('old-password').value = '';
+    document.getElementById('new-password').value = '';
+    showModal('modal-settings');
+}
+
+async function changePassword() {
+    const oldPassword = document.getElementById('old-password').value;
+    const newPassword = document.getElementById('new-password').value;
+    const errEl = document.getElementById('settings-error');
+    const okEl  = document.getElementById('settings-ok');
+    errEl.style.display = 'none';
+    okEl.style.display  = 'none';
+
+    if (!oldPassword || !newPassword) {
+        errEl.innerText = 'Wypełnij oba pola.';
+        errEl.style.display = 'block';
+        return;
+    }
+
+    const token = localStorage.getItem('jwt_token');
+    try {
+        const res  = await fetch('/api/users/me/password', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+            body: JSON.stringify({ oldPassword, newPassword })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            errEl.innerText = data.error || 'Błąd serwera';
+            errEl.style.display = 'block';
+        } else {
+            okEl.style.display = 'block';
+            document.getElementById('old-password').value = '';
+            document.getElementById('new-password').value = '';
+        }
+    } catch (e) { console.error(e); }
+}
+
+// ============================================================
+// LISTA OBECNOŚCI
+// ============================================================
+async function loadAttendance() {
+    if (!currentRoomId) return;
+    const token = localStorage.getItem('jwt_token');
+    try {
+        const res  = await fetch('/api/rooms/' + currentRoomId + '/attendance', {
+            headers: { Authorization: 'Bearer ' + token }
+        });
+        if (!res.ok) { alert('Brak uprawnień lub błąd serwera'); return; }
+        const list = await res.json();
+
+        document.getElementById('attendance-room-name').innerText =
+            'Pokój: ' + (document.getElementById('room-header-name').innerText || currentRoomId);
+
+        const container = document.getElementById('attendance-list');
+        if (!list.length) {
+            container.innerHTML = '<p style="color:var(--text-light); font-size:13px;">Brak zapisów obecności.</p>';
+        } else {
+            container.innerHTML = `
+                <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                    <thead>
+                        <tr style="border-bottom:1px solid var(--border);">
+                            <th style="text-align:left; padding:6px 8px; color:var(--text-mid);">Użytkownik</th>
+                            <th style="text-align:left; padding:6px 8px; color:var(--text-mid);">Dołączył</th>
+                            <th style="text-align:left; padding:6px 8px; color:var(--text-mid);">Wyszedł</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${list.map(a => `
+                            <tr style="border-bottom:1px solid var(--border);">
+                                <td style="padding:6px 8px; font-weight:500;">${a.username}</td>
+                                <td style="padding:6px 8px; color:var(--text-mid);">${formatDate(a.joinedAt)}</td>
+                                <td style="padding:6px 8px; color:var(--text-mid);">${a.leftAt ? formatDate(a.leftAt) : '— aktywny'}</td>
+                            </tr>`).join('')}
+                    </tbody>
+                </table>`;
+        }
+        showModal('modal-attendance');
+    } catch (e) { console.error(e); }
+}
+
+function formatDate(isoStr) {
+    if (!isoStr) return '—';
+    const d = new Date(isoStr);
+    return d.toLocaleDateString('pl-PL') + ' ' + d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+}
+
+// ============================================================
+// ZAPIS OBECNOŚCI PRZY DOŁĄCZANIU / WYCHODZENIU
+// ============================================================
+async function recordJoin(roomId, channelId) {
+    const token = localStorage.getItem('jwt_token');
+    await fetch('/api/attendance/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ roomId, channelId })
+    }).catch(e => console.error('attendance join', e));
+}
+
+async function recordLeave(roomId) {
+    const token = localStorage.getItem('jwt_token');
+    await fetch('/api/attendance/leave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ roomId })
+    }).catch(e => console.error('attendance leave', e));
 }

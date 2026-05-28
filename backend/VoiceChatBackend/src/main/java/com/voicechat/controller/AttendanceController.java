@@ -25,9 +25,8 @@ public class AttendanceController {
         this.attendanceService = attendanceService;
     }
 
-    // Tylko TEACHER widzi listę obecności pokoju
     @GetMapping("/rooms/{roomId}/attendance")
-    public ResponseEntity<?> getRoomAttendance(@PathVariable String roomId, Authentication auth) {
+    public ResponseEntity<?> getRoomAttendance(@PathVariable("roomId") String roomId, Authentication auth) {
         boolean isTeacher = auth.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_TEACHER"));
         if (!isTeacher) {

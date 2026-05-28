@@ -25,7 +25,6 @@ public class WebSocketDisconnectHandler {
 
         if (user == null) return;
 
-        // Pobierz channelId zapisany przy połączeniu (jeśli był)
         Map<String, Object> sessionAttrs = accessor.getSessionAttributes();
         if (sessionAttrs == null) return;
 

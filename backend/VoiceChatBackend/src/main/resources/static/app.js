@@ -1,6 +1,4 @@
-// ============================================================
-// STAN
-// ============================================================
+
 const myId = Math.random().toString(36).substring(7);
 let myUsername = '';
 let myRole = '';          // 'STUDENT' | 'TEACHER'
@@ -35,9 +33,7 @@ const rtcConfig = {
     ]
 };
 
-// ============================================================
-// INIT
-// ============================================================
+
 window.onload = function () {
     const token = localStorage.getItem('jwt_token');
     const username = localStorage.getItem('username');
@@ -49,9 +45,7 @@ window.onload = function () {
     }
 };
 
-// ============================================================
-// AUTH
-// ============================================================
+
 function switchAuthTab() {
     authTab = authTab === 'login' ? 'register' : 'login';
     const isLogin = authTab === 'login';
@@ -109,9 +103,7 @@ function showAuthError(msg) {
     el.style.display = 'block';
 }
 
-// ============================================================
-// APP
-// ============================================================
+
 async function showApp() {
     document.getElementById('auth-screen').style.display = 'none';
     document.getElementById('app').style.display         = 'flex';
@@ -120,9 +112,7 @@ async function showApp() {
     document.getElementById('user-avatar-icon').innerText  = myUsername.charAt(0).toUpperCase();
     document.getElementById('panel-role').innerText        = myRole === 'TEACHER' ? '👨‍🏫 Wykładowca' : '🎒 Student';
 
-    // Tylko teacher może tworzyć pokoje
     document.getElementById('btn-add-room').style.display = myRole === 'TEACHER' ? 'flex' : 'none';
-    // Przycisk listy obecności tylko dla teachera
     const attWrap = document.getElementById('attendance-btn-wrap');
     if (attWrap) attWrap.style.display = myRole === 'TEACHER' ? 'block' : 'none';
 
@@ -135,9 +125,7 @@ function logout() {
     window.location.reload();
 }
 
-// ============================================================
-// POKOJE
-// ============================================================
+
 async function loadRooms() {
     const token = localStorage.getItem('jwt_token');
     try {
@@ -177,7 +165,6 @@ function selectRoom(el) {
 
     document.getElementById('room-header-name').innerText = roomName;
 
-    // Teacher może dodawać kanały
     document.getElementById('btn-add-channel').style.display = myRole === 'TEACHER' ? 'inline' : 'none';
 
     loadChannels(roomId);
@@ -216,9 +203,7 @@ function renderChannels(channels) {
     });
 }
 
-// ============================================================
-// MODALS
-// ============================================================
+
 function showModal(id) {
     document.getElementById(id).style.display = 'flex';
     const input = document.querySelector('#' + id + ' input');
@@ -255,8 +240,12 @@ async function createRoom() {
 
 async function createChannel() {
     const name = document.getElementById('new-channel-name').value.trim();
-    if (!name) return;
-    if (!currentRoomId) { alert('Najpierw wybierz pokój!'); return; }
+    if (!name) { alert('Wpisz nazwę kanału.'); return; }
+    if (!currentRoomId) { 
+        alert('Najpierw kliknij pokój w lewej kolumnie, a potem dodaj kanał.');
+        hideModal('modal-channel');
+        return; 
+    }
     const token = localStorage.getItem('jwt_token');
     try {
         const res = await fetch('/api/rooms/' + currentRoomId + '/channels', {
@@ -270,14 +259,12 @@ async function createChannel() {
             await loadChannels(currentRoomId);
         } else {
             const err = await res.json().catch(() => ({}));
-            alert('Błąd: ' + (err.error || res.status));
+            alert('Błąd tworzenia kanału: ' + (err.error || res.status));
         }
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); alert('Błąd połączenia z serwerem.'); }
 }
 
-// ============================================================
-// VOICE / WEBRTC
-// ============================================================
+
 async function joinVoice(channelId, channelName) {
     if (currentChannelId === channelId) return;
     if (currentChannelId) await leaveVoice();
@@ -345,9 +332,7 @@ async function leaveVoice() {
     updateControls();
 }
 
-// ============================================================
-// SYGNALIZACJA
-// ============================================================
+
 function sendSignal(data) {
     if (!stompClient || !currentChannelId) return;
     stompClient.send('/topic/voice/' + currentChannelId, {}, JSON.stringify({ ...data, senderId: myId }));
@@ -414,9 +399,7 @@ async function createPeerConnection(peerId, isInitiator) {
     return pc;
 }
 
-// ============================================================
-// SCREEN SHARE
-// ============================================================
+
 async function toggleScreenShare() {
     isSharingScreen ? stopScreenShare() : await startScreenShare();
 }
@@ -484,9 +467,7 @@ function removeRemoteScreen(peerId) {
         document.getElementById('screens-area').style.display = 'none';
 }
 
-// ============================================================
-// KONTROLKI
-// ============================================================
+
 function toggleMute() {
     isMuted = !isMuted;
     localStream?.getAudioTracks().forEach(t => t.enabled = !isMuted);
@@ -506,9 +487,7 @@ function updateControls() {
     if (c) { c.innerText = isCamOff ? '📵' : '📷'; c.classList.toggle('muted', isCamOff); }
 }
 
-// ============================================================
-// UI
-// ============================================================
+
 function addParticipantCard(peerId, username, isMe) {
     const grid = document.getElementById('participants-grid');
     if (document.getElementById('card-' + peerId)) return;
@@ -549,9 +528,7 @@ function updateMemberCount() {
         document.getElementById('participants-grid').children.length;
 }
 
-// ============================================================
-// USTAWIENIA KONTA
-// ============================================================
+
 function openSettings() {
     document.getElementById('settings-info').innerText =
         'Zalogowany jako: ' + myUsername + ' (' + (myRole === 'TEACHER' ? 'Wykładowca' : 'Student') + ')';
@@ -595,17 +572,17 @@ async function changePassword() {
     } catch (e) { console.error(e); }
 }
 
-// ============================================================
-// LISTA OBECNOŚCI
-// ============================================================
+
 async function loadAttendance() {
-    if (!currentRoomId) return;
+    const roomId = currentRoomId;
+    if (!roomId) { alert('Najpierw wybierz pokój z lewego panelu.'); return; }
     const token = localStorage.getItem('jwt_token');
     try {
-        const res  = await fetch('/api/rooms/' + currentRoomId + '/attendance', {
+        const res = await fetch('/api/rooms/' + roomId + '/attendance', {
             headers: { Authorization: 'Bearer ' + token }
         });
-        if (!res.ok) { alert('Brak uprawnień lub błąd serwera'); return; }
+        if (res.status === 403) { alert('Tylko wykładowca może sprawdzić listę obecności.'); return; }
+        if (!res.ok) { alert('Błąd serwera: ' + res.status); return; }
         const list = await res.json();
 
         document.getElementById('attendance-room-name').innerText =
@@ -644,9 +621,7 @@ function formatDate(isoStr) {
     return d.toLocaleDateString('pl-PL') + ' ' + d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
 }
 
-// ============================================================
-// ZAPIS OBECNOŚCI PRZY DOŁĄCZANIU / WYCHODZENIU
-// ============================================================
+
 async function recordJoin(roomId, channelId) {
     const token = localStorage.getItem('jwt_token');
     await fetch('/api/attendance/join', {

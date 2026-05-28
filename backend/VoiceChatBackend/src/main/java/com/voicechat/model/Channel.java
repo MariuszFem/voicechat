@@ -40,7 +40,6 @@ public class Channel {
     public String getName() { return name; }
     public Room getRoom() { return room; }
 
-    // Zwraca roomId w JSON bez osobnego pola w bazie
     @JsonProperty("roomId")
     public String getRoomId() {
         return room != null ? room.getRoomId() : null;

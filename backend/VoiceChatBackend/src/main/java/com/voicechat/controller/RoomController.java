@@ -45,7 +45,7 @@ public class RoomController {
     }
 
     @PutMapping("/{roomId}")
-    public ResponseEntity<?> updateRoom(@PathVariable String roomId,
+    public ResponseEntity<?> updateRoom(@PathVariable("roomId") String roomId,
                                         @RequestBody Map<String, String> body,
                                         Authentication auth) {
         try {
@@ -57,7 +57,7 @@ public class RoomController {
     }
 
     @DeleteMapping("/{roomId}")
-    public ResponseEntity<?> deleteRoom(@PathVariable String roomId, Authentication auth) {
+    public ResponseEntity<?> deleteRoom(@PathVariable("roomId") String roomId, Authentication auth) {
         try {
             roomService.deleteRoom(roomId, auth.getName());
             return ResponseEntity.ok(Map.of("status", "Pokój usunięty"));
@@ -67,12 +67,12 @@ public class RoomController {
     }
 
     @GetMapping("/{roomId}/channels")
-    public List<Channel> getChannels(@PathVariable String roomId) {
+    public List<Channel> getChannels(@PathVariable("roomId") String roomId) {
         return roomService.getChannels(roomId);
     }
 
     @PostMapping("/{roomId}/channels")
-    public ResponseEntity<?> createChannel(@PathVariable String roomId,
+    public ResponseEntity<?> createChannel(@PathVariable("roomId") String roomId,
                                            @RequestBody Map<String, String> body) {
         String name = body.get("name");
         if (name == null || name.isBlank()) {

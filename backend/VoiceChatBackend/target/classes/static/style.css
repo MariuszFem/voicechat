@@ -266,3 +266,12 @@ body { font-family: 'Inter', sans-serif; background: var(--bg-main); color: var(
 
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-thumb { background: rgba(26,39,68,0.15); border-radius: 2px; }
+
+/* Lista obecności */
+.btn-attendance {
+    width: 100%; padding: 8px 12px; background: var(--bg-input);
+    border: 1.5px solid var(--border); border-radius: var(--radius);
+    font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text-dark);
+    font-family: 'Inter', sans-serif; transition: 0.15s; margin: 0;
+}
+.btn-attendance:hover { background: var(--border); }
