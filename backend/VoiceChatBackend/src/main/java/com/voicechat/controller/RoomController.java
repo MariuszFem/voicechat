@@ -75,9 +75,14 @@ public class RoomController {
     public ResponseEntity<?> createChannel(@PathVariable("roomId") String roomId,
                                            @RequestBody Map<String, String> body) {
         String name = body.get("name");
+        // TUTAJ DODANO: Pobieramy typ z frontendu (domyślnie VOICE, jeśli nie podano)
+        String type = body.getOrDefault("type", "VOICE");
+
         if (name == null || name.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Podaj nazwę kanału"));
         }
-        return ResponseEntity.ok(roomService.createChannel(roomId, name));
+
+        // TUTAJ ZMIENIONO: Przekazujemy 'type' do metody serwisu
+        return ResponseEntity.ok(roomService.createChannel(roomId, name, type));
     }
 }

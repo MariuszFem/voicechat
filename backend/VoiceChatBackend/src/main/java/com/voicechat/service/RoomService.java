@@ -61,9 +61,11 @@ public class RoomService {
                 .orElseThrow(() -> new RuntimeException("Pokój nie istnieje"));
     }
 
-    public Channel createChannel(String roomId, String name) {
-        Room room = getRoom(roomId);
-        return channelRepository.save(new Channel(name, room));
+    public Channel createChannel(String roomId, String name, String type) {
+        Room room = roomRepository.findById(roomId).orElseThrow();
+        Channel channel = new Channel(name, room);
+        channel.setType(type);
+        return channelRepository.save(channel);
     }
 
     public List<Channel> getChannels(String roomId) {

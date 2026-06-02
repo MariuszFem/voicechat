@@ -1,38 +1,32 @@
-
 const myId = Math.random().toString(36).substring(7);
 let myUsername = '';
-let myRole = '';          // 'STUDENT' | 'TEACHER'
+let myRole = '';
 let currentRoomId = null;
 let currentChannelId = null;
+let currentChannelType = null;
+let chatSubscription = null;
+let channelTypeToCreate = 'VOICE';
 
 let stompClient = null;
 let peerConnections = {};
+let earlyIceCandidates = {};
 let localStream = null;
 let screenStream = null;
 let isMuted = false;
 let isCamOff = false;
 let isSharingScreen = false;
+let isHandRaised = false;
 
-// auth tab
 let authTab = 'login';
 let selectedRole = 'STUDENT';
 
 const rtcConfig = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
-        {
-            urls: 'turn:openrelay.metered.ca:80',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-        },
-        {
-            urls: 'turn:openrelay.metered.ca:443',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-        }
+        { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }
     ]
 };
-
 
 window.onload = function () {
     const token = localStorage.getItem('jwt_token');
@@ -44,7 +38,6 @@ window.onload = function () {
         showApp();
     }
 };
-
 
 function switchAuthTab() {
     authTab = authTab === 'login' ? 'register' : 'login';
@@ -71,9 +64,7 @@ async function submitAuth() {
     if (!username || !password) { showAuthError('Wypełnij wszystkie pola.'); return; }
 
     const url  = authTab === 'login' ? '/api/auth/login' : '/api/auth/register';
-    const body = authTab === 'login'
-        ? { username, password }
-        : { username, password, role: selectedRole };
+    const body = authTab === 'login' ? { username, password } : { username, password, role: selectedRole };
 
     try {
         const res  = await fetch(url, {
@@ -103,7 +94,6 @@ function showAuthError(msg) {
     el.style.display = 'block';
 }
 
-
 async function showApp() {
     document.getElementById('auth-screen').style.display = 'none';
     document.getElementById('app').style.display         = 'flex';
@@ -120,17 +110,16 @@ async function showApp() {
 }
 
 function logout() {
-    if (currentChannelId) leaveVoice();
+    if (currentChannelId) leaveChannel();
     localStorage.clear();
     window.location.reload();
 }
-
 
 async function loadRooms() {
     const token = localStorage.getItem('jwt_token');
     try {
         const res = await fetch('/api/rooms', { headers: { Authorization: 'Bearer ' + token } });
-        if (!res.ok) { console.error('loadRooms', res.status); return; }
+        if (!res.ok) return;
         const rooms = await res.json();
         renderRooms(Array.isArray(rooms) ? rooms : []);
     } catch (e) { console.error('loadRooms', e); }
@@ -148,7 +137,6 @@ function renderRooms(rooms) {
         el.innerText = room.name.charAt(0).toUpperCase();
         el.dataset.roomId    = room.roomId;
         el.dataset.roomName  = room.name;
-        el.dataset.roomOwner = room.ownerUsername || '';
         el.onclick = function () { selectRoom(this); };
         bar.insertBefore(el, divider);
     });
@@ -157,21 +145,16 @@ function renderRooms(rooms) {
 function selectRoom(el) {
     const roomId    = el.dataset.roomId;
     const roomName  = el.dataset.roomName;
-
     currentRoomId = roomId;
 
-    bar_icons().forEach(i => i.classList.remove('active'));
+    document.querySelectorAll('#servers-bar .server-icon:not(.add-server)').forEach(i => i.classList.remove('active'));
     el.classList.add('active');
 
     document.getElementById('room-header-name').innerText = roomName;
-
     document.getElementById('btn-add-channel').style.display = myRole === 'TEACHER' ? 'inline' : 'none';
+    document.getElementById('btn-add-text-channel').style.display = myRole === 'TEACHER' ? 'inline' : 'none';
 
     loadChannels(roomId);
-}
-
-function bar_icons() {
-    return document.querySelectorAll('#servers-bar .server-icon:not(.add-server)');
 }
 
 async function loadChannels(roomId) {
@@ -180,29 +163,43 @@ async function loadChannels(roomId) {
         const res = await fetch('/api/rooms/' + roomId + '/channels', {
             headers: { Authorization: 'Bearer ' + token }
         });
-        if (!res.ok) { console.error('loadChannels', res.status, await res.text()); return; }
+        if (!res.ok) return;
         const channels = await res.json();
         renderChannels(Array.isArray(channels) ? channels : []);
     } catch (e) { console.error('loadChannels', e); }
 }
 
 function renderChannels(channels) {
-    const list = document.getElementById('channel-list');
-    list.innerHTML = '';
-    if (channels.length === 0) {
-        list.innerHTML = '<div class="channels-empty">Brak kanałów</div>';
+    const voiceList = document.getElementById('channel-list');
+    const textList = document.getElementById('text-channel-list');
+    voiceList.innerHTML = '';
+    textList.innerHTML = '';
+
+    if (!channels || channels.length === 0) {
+        voiceList.innerHTML = '<div class="channels-empty">Brak kanałów</div>';
+        textList.innerHTML = '<div class="channels-empty">Brak kanałów</div>';
         return;
     }
+
     channels.forEach(ch => {
         const el = document.createElement('div');
         el.className = 'channel-item';
         el.id        = 'ch-' + ch.id;
-        el.innerHTML = `<span class="ch-icon">🔊</span><span>${ch.name}</span>`;
-        el.onclick   = () => joinVoice(ch.id, ch.name);
-        list.appendChild(el);
-    });
-}
+        const isText = ch.type === 'TEXT';
+        el.innerHTML = `<span class="ch-icon">${isText ? '#' : '🔊'}</span><span>${ch.name}</span>`;
 
+        if (isText) {
+            el.onclick = () => joinTextChannel(ch.id, ch.name);
+            textList.appendChild(el);
+        } else {
+            el.onclick = () => joinVoice(ch.id, ch.name);
+            voiceList.appendChild(el);
+        }
+    });
+
+    if (textList.children.length === 0) textList.innerHTML = '<div class="channels-empty">Brak kanałów</div>';
+    if (voiceList.children.length === 0) voiceList.innerHTML = '<div class="channels-empty">Brak kanałów</div>';
+}
 
 function showModal(id) {
     document.getElementById(id).style.display = 'flex';
@@ -212,6 +209,13 @@ function showModal(id) {
 
 function hideModal(id) {
     document.getElementById(id).style.display = 'none';
+}
+
+function openChannelModal(type) {
+    channelTypeToCreate = type;
+    const modalTitle = document.querySelector('#modal-channel h3');
+    if (modalTitle) modalTitle.innerText = type === 'TEXT' ? 'Dodaj kanał tekstowy' : 'Dodaj kanał głosowy';
+    showModal('modal-channel');
 }
 
 async function createRoom() {
@@ -228,65 +232,83 @@ async function createRoom() {
         if (res.ok) {
             hideModal('modal-room');
             document.getElementById('new-room-name').value = '';
-            if (document.getElementById('new-room-desc'))
-                document.getElementById('new-room-desc').value = '';
             await loadRooms();
-        } else {
-            const err = await res.json().catch(() => ({}));
-            alert('Błąd: ' + (err.error || res.status));
-        }
+        } else alert('Błąd: ' + res.status);
     } catch (e) { console.error(e); }
 }
 
 async function createChannel() {
     const name = document.getElementById('new-channel-name').value.trim();
-    if (!name) { alert('Wpisz nazwę kanału.'); return; }
-    if (!currentRoomId) { 
-        alert('Najpierw kliknij pokój w lewej kolumnie, a potem dodaj kanał.');
-        hideModal('modal-channel');
-        return; 
-    }
+    if (!name || !currentRoomId) return hideModal('modal-channel');
+
     const token = localStorage.getItem('jwt_token');
     try {
         const res = await fetch('/api/rooms/' + currentRoomId + '/channels', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-            body: JSON.stringify({ name })
+            body: JSON.stringify({ name: name, type: channelTypeToCreate })
         });
         if (res.ok) {
             hideModal('modal-channel');
             document.getElementById('new-channel-name').value = '';
             await loadChannels(currentRoomId);
-        } else {
-            const err = await res.json().catch(() => ({}));
-            alert('Błąd tworzenia kanału: ' + (err.error || res.status));
-        }
-    } catch (e) { console.error(e); alert('Błąd połączenia z serwerem.'); }
+        } else alert('Błąd tworzenia kanału.');
+    } catch (e) { console.error(e); }
 }
 
+async function joinTextChannel(channelId, channelName) {
+    if (currentChannelId === channelId) return;
+    if (currentChannelId) await leaveChannel();
+
+    currentChannelId = channelId;
+    currentChannelType = 'TEXT';
+
+    document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
+    document.getElementById('ch-' + channelId)?.classList.add('active');
+
+    document.getElementById('idle-view').style.display  = 'none';
+    document.getElementById('voice-view').style.display = 'none';
+    document.getElementById('voice-chat-section').style.display = 'none';
+    document.getElementById('text-view').style.display  = 'flex';
+    document.getElementById('text-channel-name').innerText = channelName;
+    document.getElementById('main-chat-messages').innerHTML = '';
+
+    const token = localStorage.getItem('jwt_token');
+    stompClient = Stomp.over(new SockJS('/ws'));
+    stompClient.debug = null;
+
+    stompClient.connect({ Authorization: 'Bearer ' + token }, () => {
+        chatSubscription = stompClient.subscribe('/topic/room/' + channelId, msg => {
+            handleIncomingChatMessage(JSON.parse(msg.body), true);
+        });
+    });
+}
 
 async function joinVoice(channelId, channelName) {
     if (currentChannelId === channelId) return;
-    if (currentChannelId) await leaveVoice();
+    if (currentChannelId) await leaveChannel();
 
     currentChannelId = channelId;
+    currentChannelType = 'VOICE';
 
     document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
-    const chEl = document.getElementById('ch-' + channelId);
-    if (chEl) chEl.classList.add('active');
+    document.getElementById('ch-' + channelId)?.classList.add('active');
 
     document.getElementById('idle-view').style.display  = 'none';
+    document.getElementById('text-view').style.display  = 'none';
     document.getElementById('voice-view').style.display = 'flex';
+    document.getElementById('voice-chat-section').style.display = 'flex';
     document.getElementById('voice-channel-name').innerText = channelName;
     document.getElementById('participants-grid').innerHTML  = '';
     document.getElementById('members-list').innerHTML       = '';
+    document.getElementById('voice-chat-messages').innerHTML = '';
     document.getElementById('member-count').innerText       = '0';
 
     addParticipantCard(myId, myUsername, true);
+    addMemberItem(myId, myUsername, myRole);
 
-    const token  = localStorage.getItem('jwt_token');
-    const socket = new SockJS('/ws');
-    stompClient  = Stomp.over(socket);
+    const token = localStorage.getItem('jwt_token');
+    stompClient = Stomp.over(new SockJS('/ws'));
     stompClient.debug = null;
 
     stompClient.connect({ Authorization: 'Bearer ' + token, senderId: myId }, async () => {
@@ -294,11 +316,15 @@ async function joinVoice(channelId, channelName) {
             handleSignal(JSON.parse(msg.body));
         });
 
+        chatSubscription = stompClient.subscribe('/topic/room/' + channelId, msg => {
+            handleIncomingChatMessage(JSON.parse(msg.body), false);
+        });
+
         try {
             localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
         } catch {
             try { localStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-            catch (e) { alert('Brak dostępu do mikrofonu!'); leaveVoice(); return; }
+            catch (e) { alert('Brak dostępu do mikrofonu/kamery!'); leaveChannel(); return; }
         }
 
         const videoEl = document.getElementById('video-' + myId);
@@ -306,32 +332,36 @@ async function joinVoice(channelId, channelName) {
 
         sendSignal({ type: 'join', username: myUsername, role: myRole });
         await recordJoin(currentRoomId, channelId);
-
-    }, err => { console.error('STOMP error', err); alert('Błąd połączenia WebSocket!'); });
+    }, err => { alert('Błąd połączenia ze STOMP!'); });
 }
 
-async function leaveVoice() {
-    if (stompClient) sendSignal({ type: 'leave' });
+async function leaveChannel() {
+    if (currentChannelType === 'VOICE') {
+        if (stompClient) sendSignal({ type: 'leave' });
+        if (screenStream) { screenStream.getTracks().forEach(t => t.stop()); screenStream = null; }
+        if (localStream)  { localStream.getTracks().forEach(t => t.stop());  localStream  = null; }
+        Object.values(peerConnections).forEach(pc => pc.close());
+        peerConnections = {};
+        earlyIceCandidates = {};
+        isMuted = false; isCamOff = false; isSharingScreen = false; isHandRaised = false;
+        updateControls();
+    }
+
     if (currentRoomId) await recordLeave(currentRoomId);
-
-    if (screenStream) { screenStream.getTracks().forEach(t => t.stop()); screenStream = null; }
-    if (localStream)  { localStream.getTracks().forEach(t => t.stop());  localStream  = null; }
-    Object.values(peerConnections).forEach(pc => pc.close());
-    peerConnections = {};
-
     if (stompClient) { stompClient.disconnect(); stompClient = null; }
+    chatSubscription = null;
 
     document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
     document.getElementById('idle-view').style.display   = 'flex';
     document.getElementById('voice-view').style.display  = 'none';
+    document.getElementById('text-view').style.display   = 'none';
+    document.getElementById('voice-chat-section').style.display = 'none';
     document.getElementById('screens-area').style.display = 'none';
     document.getElementById('screens-grid').innerHTML    = '';
 
     currentChannelId = null;
-    isMuted = false; isCamOff = false; isSharingScreen = false;
-    updateControls();
+    currentChannelType = null;
 }
-
 
 function sendSignal(data) {
     if (!stompClient || !currentChannelId) return;
@@ -340,36 +370,63 @@ function sendSignal(data) {
 
 async function handleSignal(data) {
     if (data.senderId === myId) return;
+    if (data.targetId && data.targetId !== myId) return;
+
     const peerId = data.senderId;
 
     switch (data.type) {
         case 'join':
             addParticipantCard(peerId, data.username, false);
             addMemberItem(peerId, data.username, data.role);
+            sendSignal({ type: 'welcome', targetId: peerId, username: myUsername, role: myRole });
             await createPeerConnection(peerId, true);
             break;
+
+        case 'welcome':
+            addParticipantCard(peerId, data.username, false);
+            addMemberItem(peerId, data.username, data.role);
+            break;
+
         case 'leave':
             removeParticipant(peerId);
             if (peerConnections[peerId]) { peerConnections[peerId].close(); delete peerConnections[peerId]; }
             break;
+
         case 'offer':
+            addParticipantCard(peerId, data.username || 'Nieznany', false);
+            addMemberItem(peerId, data.username || 'Nieznany', data.role || 'STUDENT');
+
             await createPeerConnection(peerId, false);
             await peerConnections[peerId].setRemoteDescription(new RTCSessionDescription(data.sdp));
+
             const answer = await peerConnections[peerId].createAnswer();
             await peerConnections[peerId].setLocalDescription(answer);
             sendSignal({ type: 'answer', sdp: answer, targetId: peerId });
+
+            if (earlyIceCandidates[peerId]) {
+                earlyIceCandidates[peerId].forEach(c => peerConnections[peerId].addIceCandidate(c).catch(e => console.log(e)));
+                delete earlyIceCandidates[peerId];
+            }
             break;
+
         case 'answer':
-            if (data.targetId !== myId) return;
             await peerConnections[peerId]?.setRemoteDescription(new RTCSessionDescription(data.sdp));
             break;
+
         case 'ice':
-            if (data.targetId !== myId) return;
-            await peerConnections[peerId]?.addIceCandidate(new RTCIceCandidate(data.candidate));
+            const candidate = new RTCIceCandidate(data.candidate);
+            if (peerConnections[peerId] && peerConnections[peerId].remoteDescription) {
+                await peerConnections[peerId].addIceCandidate(candidate).catch(e => console.log(e));
+            } else {
+                if (!earlyIceCandidates[peerId]) earlyIceCandidates[peerId] = [];
+                earlyIceCandidates[peerId].push(candidate);
+            }
             break;
+
         case 'screen-start':
             if (myRole === 'TEACHER') showRemoteScreen(peerId, data.username);
             break;
+
         case 'screen-stop':
             removeRemoteScreen(peerId);
             break;
@@ -381,6 +438,11 @@ async function createPeerConnection(peerId, isInitiator) {
     peerConnections[peerId] = pc;
 
     if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+    if (isSharingScreen && screenStream) {
+        screenStream.getTracks().forEach(t => pc.addTrack(t, screenStream));
+        sendSignal({ type: 'screen-start', username: myUsername, targetId: peerId });
+    }
 
     pc.ontrack = event => {
         const videoEl = document.getElementById('video-' + peerId);
@@ -394,11 +456,10 @@ async function createPeerConnection(peerId, isInitiator) {
     if (isInitiator) {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        sendSignal({ type: 'offer', sdp: offer, targetId: peerId });
+        sendSignal({ type: 'offer', sdp: offer, targetId: peerId, username: myUsername, role: myRole });
     }
     return pc;
 }
-
 
 async function toggleScreenShare() {
     isSharingScreen ? stopScreenShare() : await startScreenShare();
@@ -418,7 +479,7 @@ async function startScreenShare() {
         const track = screenStream.getVideoTracks()[0];
         Object.values(peerConnections).forEach(pc => pc.addTrack(track, screenStream));
         track.onended = stopScreenShare;
-    } catch (e) { console.error('screen share error', e); }
+    } catch (e) { console.error(e); }
 }
 
 function stopScreenShare() {
@@ -467,7 +528,6 @@ function removeRemoteScreen(peerId) {
         document.getElementById('screens-area').style.display = 'none';
 }
 
-
 function toggleMute() {
     isMuted = !isMuted;
     localStream?.getAudioTracks().forEach(t => t.enabled = !isMuted);
@@ -487,7 +547,6 @@ function updateControls() {
     if (c) { c.innerText = isCamOff ? '📵' : '📷'; c.classList.toggle('muted', isCamOff); }
 }
 
-
 function addParticipantCard(peerId, username, isMe) {
     const grid = document.getElementById('participants-grid');
     if (document.getElementById('card-' + peerId)) return;
@@ -497,7 +556,10 @@ function addParticipantCard(peerId, username, isMe) {
     card.innerHTML = `
         <video id="video-${peerId}" autoplay ${isMe ? 'muted' : ''} playsinline></video>
         <div class="card-overlay"><div class="card-avatar">${username.charAt(0).toUpperCase()}</div></div>
-        <div class="card-name">${username}${isMe ? ' (Ty)' : ''}</div>`;
+        <div class="card-name">
+            ${username}${isMe ? ' (Ty)' : ''} 
+            <span id="card-hand-${peerId}" style="margin-left: 6px; font-size: 14px;"></span>
+        </div>`;
     grid.appendChild(card);
     updateMemberCount();
 }
@@ -511,31 +573,117 @@ function removeParticipant(peerId) {
 function addMemberItem(peerId, username, role) {
     const list = document.getElementById('members-list');
     if (document.getElementById('member-' + peerId)) return;
+
     const el = document.createElement('div');
-    el.className = 'member-item'; el.id = 'member-' + peerId;
+    el.className = 'member-item';
+    el.id = 'member-' + peerId;
+
+    let hostActions = '';
+    if (myRole === 'TEACHER' && peerId !== myId) {
+        hostActions = `
+            <button class="icon-btn" onclick="muteUser('${peerId}')" title="Wycisz studenta">🔇</button>
+            <button class="icon-btn" onclick="kickUser('${peerId}')" title="Wyrzuć z sali">❌</button>
+        `;
+    }
+
     el.innerHTML = `
         <div class="member-avatar">${username.charAt(0).toUpperCase()}</div>
         <div class="member-info">
-            <div class="member-name">${username}</div>
+            <div class="member-name">${username} <span id="hand-${peerId}" style="margin-left: 4px;"></span></div>
             <div class="member-role">${role === 'TEACHER' ? '👨‍🏫 Wykładowca' : '🎒 Student'}</div>
-        </div>`;
+        </div>
+        ${hostActions}
+    `;
     list.appendChild(el);
     updateMemberCount();
 }
 
 function updateMemberCount() {
-    document.getElementById('member-count').innerText =
-        document.getElementById('participants-grid').children.length;
+    document.getElementById('member-count').innerText = document.getElementById('participants-grid').children.length;
 }
 
+function toggleHand() {
+    if (myRole === 'TEACHER') return;
+
+    isHandRaised = !isHandRaised;
+    const btn = document.getElementById('btn-hand');
+    if (btn) btn.style.backgroundColor = isHandRaised ? 'var(--accent)' : '';
+
+    const message = { sender: myId, content: isHandRaised.toString(), type: 'RAISE_HAND', roomId: currentChannelId };
+    stompClient.send('/app/room/' + currentChannelId + '/chat', {}, JSON.stringify(message));
+}
+
+function muteUser(targetId) {
+    const message = { sender: myId, content: targetId, type: 'MUTE', roomId: currentChannelId };
+    stompClient.send('/app/room/' + currentChannelId + '/chat', {}, JSON.stringify(message));
+}
+
+function kickUser(targetId) {
+    const message = { sender: myId, content: targetId, type: 'KICK', roomId: currentChannelId };
+    stompClient.send('/app/room/' + currentChannelId + '/chat', {}, JSON.stringify(message));
+}
+
+function sendChatMessage(isMainView) {
+    const inputId = isMainView ? 'main-chat-input' : 'voice-chat-input';
+    const input = document.getElementById(inputId);
+
+    if (!input || !input.value.trim() || !stompClient || !currentChannelId) return;
+
+    const message = {
+        sender: myUsername,
+        content: input.value.trim(),
+        type: 'CHAT',
+        roomId: currentChannelId
+    };
+
+    stompClient.send('/app/room/' + currentChannelId + '/chat', {}, JSON.stringify(message));
+    input.value = '';
+}
+
+function handleIncomingChatMessage(msg, isMainView) {
+    if (msg.type === 'CHAT') {
+        const boxId = isMainView ? 'main-chat-messages' : 'voice-chat-messages';
+        const box = document.getElementById(boxId);
+        if (!box) return;
+
+        const el = document.createElement('div');
+        el.innerHTML = `<strong style="color: ${msg.sender === myUsername ? 'var(--navy)' : 'var(--text-mid)'}; font-size: ${isMainView ? '15px' : '13px'};">${msg.sender}</strong>
+                        <div style="margin-top: 4px;">${msg.content}</div>`;
+        box.appendChild(el);
+        box.scrollTop = box.scrollHeight;
+    }
+    else if (msg.type === 'RAISE_HAND') {
+        const peerId = msg.sender;
+        const isRaised = msg.content === 'true';
+
+        const handSpan = document.getElementById('hand-' + peerId);
+        if (handSpan) {
+            handSpan.innerText = isRaised ? '✋' : '';
+        }
+
+        const cardHandSpan = document.getElementById('card-hand-' + peerId);
+        if (cardHandSpan) {
+            cardHandSpan.innerText = isRaised ? '✋' : '';
+        }
+    }
+    else if (msg.type === 'MUTE') {
+        if (msg.content === myId) {
+            alert("Prowadzący wyciszył Twój mikrofon.");
+            if (!isMuted) toggleMute();
+        }
+    }
+    else if (msg.type === 'KICK') {
+        if (msg.content === myId) {
+            alert("Zostałeś wyrzucony z kanału przez prowadzącego.");
+            leaveChannel();
+        }
+    }
+}
 
 function openSettings() {
-    document.getElementById('settings-info').innerText =
-        'Zalogowany jako: ' + myUsername + ' (' + (myRole === 'TEACHER' ? 'Wykładowca' : 'Student') + ')';
+    document.getElementById('settings-info').innerText = 'Zalogowany jako: ' + myUsername + ' (' + (myRole === 'TEACHER' ? 'Wykładowca' : 'Student') + ')';
     document.getElementById('settings-error').style.display = 'none';
     document.getElementById('settings-ok').style.display    = 'none';
-    document.getElementById('old-password').value = '';
-    document.getElementById('new-password').value = '';
     showModal('modal-settings');
 }
 
@@ -544,13 +692,10 @@ async function changePassword() {
     const newPassword = document.getElementById('new-password').value;
     const errEl = document.getElementById('settings-error');
     const okEl  = document.getElementById('settings-ok');
-    errEl.style.display = 'none';
-    okEl.style.display  = 'none';
+    errEl.style.display = 'none'; okEl.style.display = 'none';
 
     if (!oldPassword || !newPassword) {
-        errEl.innerText = 'Wypełnij oba pola.';
-        errEl.style.display = 'block';
-        return;
+        errEl.innerText = 'Wypełnij oba pola.'; errEl.style.display = 'block'; return;
     }
 
     const token = localStorage.getItem('jwt_token');
@@ -560,54 +705,44 @@ async function changePassword() {
             headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
             body: JSON.stringify({ oldPassword, newPassword })
         });
-        const data = await res.json();
         if (!res.ok) {
-            errEl.innerText = data.error || 'Błąd serwera';
-            errEl.style.display = 'block';
+            const data = await res.json();
+            errEl.innerText = data.error || 'Błąd serwera'; errEl.style.display = 'block';
         } else {
             okEl.style.display = 'block';
-            document.getElementById('old-password').value = '';
-            document.getElementById('new-password').value = '';
+            document.getElementById('old-password').value = ''; document.getElementById('new-password').value = '';
         }
     } catch (e) { console.error(e); }
 }
-
 
 async function loadAttendance() {
     const roomId = currentRoomId;
     if (!roomId) { alert('Najpierw wybierz pokój z lewego panelu.'); return; }
     const token = localStorage.getItem('jwt_token');
     try {
-        const res = await fetch('/api/rooms/' + roomId + '/attendance', {
-            headers: { Authorization: 'Bearer ' + token }
-        });
+        const res = await fetch('/api/rooms/' + roomId + '/attendance', { headers: { Authorization: 'Bearer ' + token } });
         if (res.status === 403) { alert('Tylko wykładowca może sprawdzić listę obecności.'); return; }
-        if (!res.ok) { alert('Błąd serwera: ' + res.status); return; }
+        if (!res.ok) return;
         const list = await res.json();
 
-        document.getElementById('attendance-room-name').innerText =
-            'Pokój: ' + (document.getElementById('room-header-name').innerText || currentRoomId);
-
+        document.getElementById('attendance-room-name').innerText = 'Pokój: ' + (document.getElementById('room-header-name').innerText || currentRoomId);
         const container = document.getElementById('attendance-list');
         if (!list.length) {
             container.innerHTML = '<p style="color:var(--text-light); font-size:13px;">Brak zapisów obecności.</p>';
         } else {
             container.innerHTML = `
                 <table style="width:100%; border-collapse:collapse; font-size:13px;">
-                    <thead>
+                    <thead><tr style="border-bottom:1px solid var(--border);">
+                        <th style="text-align:left; padding:6px 8px; color:var(--text-mid);">Użytkownik</th>
+                        <th style="text-align:left; padding:6px 8px; color:var(--text-mid);">Dołączył</th>
+                        <th style="text-align:left; padding:6px 8px; color:var(--text-mid);">Wyszedł</th>
+                    </tr></thead>
+                    <tbody>${list.map(a => `
                         <tr style="border-bottom:1px solid var(--border);">
-                            <th style="text-align:left; padding:6px 8px; color:var(--text-mid);">Użytkownik</th>
-                            <th style="text-align:left; padding:6px 8px; color:var(--text-mid);">Dołączył</th>
-                            <th style="text-align:left; padding:6px 8px; color:var(--text-mid);">Wyszedł</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${list.map(a => `
-                            <tr style="border-bottom:1px solid var(--border);">
-                                <td style="padding:6px 8px; font-weight:500;">${a.username}</td>
-                                <td style="padding:6px 8px; color:var(--text-mid);">${formatDate(a.joinedAt)}</td>
-                                <td style="padding:6px 8px; color:var(--text-mid);">${a.leftAt ? formatDate(a.leftAt) : '— aktywny'}</td>
-                            </tr>`).join('')}
+                            <td style="padding:6px 8px; font-weight:500;">${a.username}</td>
+                            <td style="padding:6px 8px; color:var(--text-mid);">${formatDate(a.joinedAt)}</td>
+                            <td style="padding:6px 8px; color:var(--text-mid);">${a.leftAt ? formatDate(a.leftAt) : '— aktywny'}</td>
+                        </tr>`).join('')}
                     </tbody>
                 </table>`;
         }
@@ -621,14 +756,13 @@ function formatDate(isoStr) {
     return d.toLocaleDateString('pl-PL') + ' ' + d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
 }
 
-
 async function recordJoin(roomId, channelId) {
     const token = localStorage.getItem('jwt_token');
     await fetch('/api/attendance/join', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify({ roomId, channelId })
-    }).catch(e => console.error('attendance join', e));
+    }).catch(e => console.error(e));
 }
 
 async function recordLeave(roomId) {
@@ -637,5 +771,5 @@ async function recordLeave(roomId) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify({ roomId })
-    }).catch(e => console.error('attendance leave', e));
+    }).catch(e => console.error(e));
 }
