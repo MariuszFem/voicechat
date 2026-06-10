@@ -8,6 +8,11 @@ let chatSubscription = null;
 let channelTypeToCreate = 'VOICE';
 
 let stompClient = null;
+let dmStompClient = null;      // osobne połączenie STOMP dla DM (działa globalnie, niezależnie od kanału)
+let dmSubscription = null;
+let currentDmUser = null;      // aktualnie otwarty DM
+let dmUnreadCounts = {};       // { username: count }
+let allUsers = [];             // cache listy użytkowników
 let peerConnections = {};
 let earlyIceCandidates = {};
 let localStream = null;
@@ -16,6 +21,18 @@ let isMuted = false;
 let isCamOff = false;
 let isSharingScreen = false;
 let isHandRaised = false;
+
+// Whiteboard
+let wbOpen = false;
+let wbDrawing = false;
+let wbTool = 'pen';
+let wbLastX = 0;
+let wbLastY = 0;
+let wbCanvas = null;
+let wbCtx = null;
+
+// Status mikrofonu uczestników: { username: bool (true=wyciszony) }
+let participantMuteState = {};
 
 let authTab = 'login';
 let selectedRole = 'STUDENT';
@@ -102,15 +119,18 @@ async function showApp() {
     document.getElementById('user-avatar-icon').innerText  = myUsername.charAt(0).toUpperCase();
     document.getElementById('panel-role').innerText        = myRole === 'TEACHER' ? '👨‍🏫 Wykładowca' : '🎒 Student';
 
-    document.getElementById('btn-add-room').style.display = myRole === 'TEACHER' ? 'flex' : 'none';
+    document.getElementById('btn-add-room').style.display = 'flex';
     const attWrap = document.getElementById('attendance-btn-wrap');
     if (attWrap) attWrap.style.display = myRole === 'TEACHER' ? 'block' : 'none';
 
     await loadRooms();
+    initDmConnection();
+    await loadUserList();
 }
 
 function logout() {
     if (currentChannelId) leaveChannel();
+    if (dmStompClient) { dmStompClient.disconnect(); dmStompClient = null; }
     localStorage.clear();
     window.location.reload();
 }
@@ -273,6 +293,9 @@ async function joinTextChannel(channelId, channelName) {
     document.getElementById('text-channel-name').innerText = channelName;
     document.getElementById('main-chat-messages').innerHTML = '';
 
+    // Załaduj historię wiadomości
+    await loadChannelHistory(channelId);
+
     const token = localStorage.getItem('jwt_token');
     stompClient = Stomp.over(new SockJS('/ws'));
     stompClient.debug = null;
@@ -320,6 +343,9 @@ async function joinVoice(channelId, channelName) {
             handleIncomingChatMessage(JSON.parse(msg.body), false);
         });
 
+        // Załaduj historię czatu głosowego
+        await loadChannelHistory(channelId, false);
+
         try {
             localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
         } catch {
@@ -331,6 +357,14 @@ async function joinVoice(channelId, channelName) {
         if (videoEl) videoEl.srcObject = localStream;
 
         sendSignal({ type: 'join', username: myUsername, role: myRole });
+
+        // Wyślij własny status mikrofonu zaraz po dołączeniu
+        stompClient.send('/app/room/' + channelId + '/chat', {}, JSON.stringify({
+            sender: myUsername,
+            content: isMuted.toString(),
+            type: 'MIC_STATUS'
+        }));
+
         await recordJoin(currentRoomId, channelId);
     }, err => { alert('Błąd połączenia ze STOMP!'); });
 }
@@ -344,6 +378,8 @@ async function leaveChannel() {
         peerConnections = {};
         earlyIceCandidates = {};
         isMuted = false; isCamOff = false; isSharingScreen = false; isHandRaised = false;
+        participantMuteState = {};
+        if (wbOpen) closeWhiteboard();
         updateControls();
     }
 
@@ -532,6 +568,15 @@ function toggleMute() {
     isMuted = !isMuted;
     localStream?.getAudioTracks().forEach(t => t.enabled = !isMuted);
     updateControls();
+
+    // Broadcast statusu mikrofonu do pozostałych uczestników
+    if (stompClient && currentChannelId) {
+        stompClient.send('/app/room/' + currentChannelId + '/chat', {}, JSON.stringify({
+            sender: myUsername,
+            content: isMuted.toString(),
+            type: 'MIC_STATUS'
+        }));
+    }
 }
 
 function toggleCamera() {
@@ -545,6 +590,8 @@ function updateControls() {
     const c = document.getElementById('cam-btn');
     if (m) { m.innerText = isMuted  ? '🔇' : '🎤'; m.classList.toggle('muted', isMuted); }
     if (c) { c.innerText = isCamOff ? '📵' : '📷'; c.classList.toggle('muted', isCamOff); }
+    // Aktualizuj ikony mikrofonu na własnej karcie i w liście uczestników
+    updateMicVisual(myUsername, isMuted);
 }
 
 function addParticipantCard(peerId, username, isMe) {
@@ -553,13 +600,18 @@ function addParticipantCard(peerId, username, isMe) {
     const card = document.createElement('div');
     card.className = 'participant-card';
     card.id = 'card-' + peerId;
+    card.dataset.username = username;
+
+    const initMuted = isMe ? isMuted : (participantMuteState[username] || false);
+
     card.innerHTML = `
         <video id="video-${peerId}" autoplay ${isMe ? 'muted' : ''} playsinline></video>
         <div class="card-overlay"><div class="card-avatar">${username.charAt(0).toUpperCase()}</div></div>
-        <div class="card-name">
-            ${username}${isMe ? ' (Ty)' : ''} 
-            <span id="card-hand-${peerId}" style="margin-left: 6px; font-size: 14px;"></span>
-        </div>`;
+        <div class="card-status-icons">
+            <span class="card-mic-icon${initMuted ? ' muted' : ''}" title="${initMuted ? 'Wyciszony' : 'Mikrofon włączony'}">${initMuted ? '🔇' : '🎤'}</span>
+            <span class="card-hand-icon"></span>
+        </div>
+        <div class="card-name">${username}${isMe ? ' (Ty)' : ''}</div>`;
     grid.appendChild(card);
     updateMemberCount();
 }
@@ -577,6 +629,10 @@ function addMemberItem(peerId, username, role) {
     const el = document.createElement('div');
     el.className = 'member-item';
     el.id = 'member-' + peerId;
+    el.dataset.username = username;
+
+    const isMe = (peerId === myId);
+    const initMuted = isMe ? isMuted : (participantMuteState[username] || false);
 
     let hostActions = '';
     if (myRole === 'TEACHER' && peerId !== myId) {
@@ -589,9 +645,10 @@ function addMemberItem(peerId, username, role) {
     el.innerHTML = `
         <div class="member-avatar">${username.charAt(0).toUpperCase()}</div>
         <div class="member-info">
-            <div class="member-name">${username} <span id="hand-${peerId}" style="margin-left: 4px;"></span></div>
+            <div class="member-name">${username} <span class="member-hand-icon"></span></div>
             <div class="member-role">${role === 'TEACHER' ? '👨‍🏫 Wykładowca' : '🎒 Student'}</div>
         </div>
+        <span class="member-mic-icon${initMuted ? ' muted' : ''}" title="${initMuted ? 'Wyciszony' : 'Mikrofon włączony'}">${initMuted ? '🔇' : '🎤'}</span>
         ${hostActions}
     `;
     list.appendChild(el);
@@ -607,9 +664,15 @@ function toggleHand() {
 
     isHandRaised = !isHandRaised;
     const btn = document.getElementById('btn-hand');
-    if (btn) btn.style.backgroundColor = isHandRaised ? 'var(--accent)' : '';
+    if (btn) {
+        btn.style.backgroundColor = isHandRaised ? 'var(--accent)' : '';
+        btn.title = isHandRaised ? 'Opuść rękę' : 'Podnieś rękę';
+    }
 
-    const message = { sender: myId, content: isHandRaised.toString(), type: 'RAISE_HAND', roomId: currentChannelId };
+    // Własna ręka – aktualizuj od razu lokalnie
+    updateHandVisual(myUsername, isHandRaised);
+
+    const message = { sender: myUsername, content: isHandRaised.toString(), type: 'RAISE_HAND', roomId: currentChannelId };
     stompClient.send('/app/room/' + currentChannelId + '/chat', {}, JSON.stringify(message));
 }
 
@@ -643,28 +706,21 @@ function sendChatMessage(isMainView) {
 function handleIncomingChatMessage(msg, isMainView) {
     if (msg.type === 'CHAT') {
         const boxId = isMainView ? 'main-chat-messages' : 'voice-chat-messages';
-        const box = document.getElementById(boxId);
-        if (!box) return;
-
-        const el = document.createElement('div');
-        el.innerHTML = `<strong style="color: ${msg.sender === myUsername ? 'var(--navy)' : 'var(--text-mid)'}; font-size: ${isMainView ? '15px' : '13px'};">${msg.sender}</strong>
-                        <div style="margin-top: 4px;">${msg.content}</div>`;
-        box.appendChild(el);
-        box.scrollTop = box.scrollHeight;
+        appendChatBubble(boxId, msg.sender, msg.content, msg.sender === myUsername, msg.timestamp);
     }
     else if (msg.type === 'RAISE_HAND') {
-        const peerId = msg.sender;
+        const username = msg.sender;
         const isRaised = msg.content === 'true';
-
-        const handSpan = document.getElementById('hand-' + peerId);
-        if (handSpan) {
-            handSpan.innerText = isRaised ? '✋' : '';
-        }
-
-        const cardHandSpan = document.getElementById('card-hand-' + peerId);
-        if (cardHandSpan) {
-            cardHandSpan.innerText = isRaised ? '✋' : '';
-        }
+        updateHandVisual(username, isRaised);
+    }
+    else if (msg.type === 'MIC_STATUS') {
+        const username = msg.sender;
+        const muted = msg.content === 'true';
+        participantMuteState[username] = muted;
+        updateMicVisual(username, muted);
+    }
+    else if (msg.type === 'WHITEBOARD') {
+        handleWhiteboardMessage(msg);
     }
     else if (msg.type === 'MUTE') {
         if (msg.content === myId) {
@@ -772,4 +828,590 @@ async function recordLeave(roomId) {
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify({ roomId })
     }).catch(e => console.error(e));
+}
+
+// =====================================================================
+// HISTORIA CZATU KANAŁOWEGO
+// =====================================================================
+
+async function loadChannelHistory(channelId, isMainView = true) {
+    const token = localStorage.getItem('jwt_token');
+    try {
+        const res = await fetch('/api/channels/' + channelId + '/messages', {
+            headers: { Authorization: 'Bearer ' + token }
+        });
+        if (!res.ok) return;
+        const messages = await res.json();
+        const boxId = isMainView ? 'main-chat-messages' : 'voice-chat-messages';
+        messages.forEach(msg => {
+            appendChatBubble(boxId, msg.sender, msg.content, msg.sender === myUsername, msg.timestamp);
+        });
+    } catch (e) { console.error('loadChannelHistory', e); }
+}
+
+// =====================================================================
+// HELPER: RENDEROWANIE BĄBELKA WIADOMOŚCI
+// =====================================================================
+
+function appendChatBubble(boxId, sender, content, isMe, timestamp) {
+    const box = document.getElementById(boxId);
+    if (!box) return;
+
+    const bubble = document.createElement('div');
+    bubble.className = 'chat-bubble' + (isMe ? ' is-mine' : '');
+
+    const timeStr = timestamp ? formatDate(timestamp) : '';
+    const escaped = escapeHtml(content);
+
+    bubble.innerHTML = `
+        <div class="bubble-header${isMe ? ' mine' : ''}">${escapeHtml(sender)} <span style="font-weight:400; opacity:0.6; font-size:10px;">${timeStr}</span></div>
+        <div class="bubble-body">${escaped}</div>`;
+
+    box.appendChild(bubble);
+    box.scrollTop = box.scrollHeight;
+}
+
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+// =====================================================================
+// PRAWA ZAKŁADKA – PRZEŁĄCZANIE
+// =====================================================================
+
+function switchRightTab(tab) {
+    document.getElementById('tab-participants').classList.toggle('active', tab === 'participants');
+    document.getElementById('tab-messages').classList.toggle('active', tab === 'messages');
+    document.getElementById('right-participants').style.display = tab === 'participants' ? 'flex' : 'none';
+    document.getElementById('right-messages').style.display     = tab === 'messages'     ? 'flex' : 'none';
+
+    // Usuń kropkę powiadomień po wejściu na zakładkę
+    if (tab === 'messages') {
+        const dot = document.getElementById('tab-messages-dot');
+        if (dot) dot.remove();
+    }
+}
+
+// =====================================================================
+// LISTA UŻYTKOWNIKÓW (do DM)
+// =====================================================================
+
+async function loadUserList() {
+    const token = localStorage.getItem('jwt_token');
+    try {
+        const res = await fetch('/api/users/all', { headers: { Authorization: 'Bearer ' + token } });
+        if (!res.ok) return;
+        allUsers = await res.json();
+        renderDmUserList(allUsers);
+    } catch (e) { console.error('loadUserList', e); }
+}
+
+function renderDmUserList(users) {
+    const list = document.getElementById('dm-users-list');
+    if (!list) return;
+    list.innerHTML = '';
+
+    if (!users || users.length === 0) {
+        list.innerHTML = '<div style="padding:12px; color:var(--text-light); font-size:13px;">Brak innych użytkowników.</div>';
+        return;
+    }
+
+    users.forEach(u => {
+        const el = document.createElement('div');
+        el.className = 'dm-user-item' + (dmUnreadCounts[u.username] ? ' has-unread' : '');
+        el.id = 'dm-user-' + u.username;
+
+        const roleLabel = u.role === 'TEACHER' ? '👨‍🏫 Wykładowca' : '🎒 Student';
+        const unread = dmUnreadCounts[u.username] || 0;
+
+        el.innerHTML = `
+            <div class="member-avatar" style="background: var(--navy-light);">${escapeHtml(u.username.charAt(0).toUpperCase())}</div>
+            <div class="member-info" style="flex:1; min-width:0;">
+                <div class="member-name">${escapeHtml(u.username)}</div>
+                <div class="member-role">${roleLabel}</div>
+            </div>
+            ${unread > 0 ? `<span class="dm-unread-badge">${unread}</span>` : ''}
+        `;
+        el.onclick = () => openDmConversation(u.username, u.role);
+        list.appendChild(el);
+    });
+}
+
+function filterDmUsers() {
+    const query = document.getElementById('dm-search').value.toLowerCase().trim();
+    const filtered = allUsers.filter(u => u.username.toLowerCase().includes(query));
+    renderDmUserList(filtered);
+}
+
+// =====================================================================
+// DM – POŁĄCZENIE STOMP (globalne, niezależne od kanałów)
+// =====================================================================
+
+function initDmConnection() {
+    if (dmStompClient) return;
+    const token = localStorage.getItem('jwt_token');
+    dmStompClient = Stomp.over(new SockJS('/ws'));
+    dmStompClient.debug = null;
+
+    dmStompClient.connect({ Authorization: 'Bearer ' + token }, () => {
+        // Subskrybujemy osobisty temat DM dla zalogowanego użytkownika
+        dmSubscription = dmStompClient.subscribe('/topic/dm/' + myUsername, msg => {
+            handleIncomingDm(JSON.parse(msg.body));
+        });
+        console.log('[DM] Połączono, nasłuchuję /topic/dm/' + myUsername);
+    }, err => {
+        console.warn('[DM] Błąd połączenia STOMP:', err);
+        dmStompClient = null;
+    });
+}
+
+// =====================================================================
+// DM – OTWIERANIE ROZMOWY
+// =====================================================================
+
+async function openDmConversation(username, role) {
+    currentDmUser = username;
+
+    // Wyczyść licznik nieprzeczytanych
+    dmUnreadCounts[username] = 0;
+    const badge = document.querySelector('#dm-user-' + CSS.escape(username) + ' .dm-unread-badge');
+    if (badge) badge.remove();
+    const userEl = document.getElementById('dm-user-' + username);
+    if (userEl) userEl.classList.remove('has-unread');
+
+    // Pokaż widok rozmowy
+    document.getElementById('dm-user-list-view').style.display      = 'none';
+    document.getElementById('dm-conversation-view').style.display   = 'flex';
+    document.getElementById('dm-conv-avatar').innerText             = username.charAt(0).toUpperCase();
+    document.getElementById('dm-conv-name').innerText               = username;
+    document.getElementById('dm-conv-role').innerText               = role === 'TEACHER' ? '👨‍🏫 Wykładowca' : '🎒 Student';
+    document.getElementById('dm-messages').innerHTML                 = '';
+    document.getElementById('dm-input').value                        = '';
+
+    // Upewnij się, że jesteśmy na zakładce Wiadomości
+    switchRightTab('messages');
+
+    // Załaduj historię
+    await loadDmHistory(username);
+
+    setTimeout(() => document.getElementById('dm-input')?.focus(), 100);
+}
+
+function closeDmConversation() {
+    currentDmUser = null;
+    document.getElementById('dm-conversation-view').style.display  = 'none';
+    document.getElementById('dm-user-list-view').style.display     = 'flex';
+}
+
+// =====================================================================
+// DM – HISTORIA
+// =====================================================================
+
+async function loadDmHistory(otherUser) {
+    const token = localStorage.getItem('jwt_token');
+    try {
+        const res = await fetch('/api/dm/' + encodeURIComponent(otherUser) + '/history', {
+            headers: { Authorization: 'Bearer ' + token }
+        });
+        if (!res.ok) return;
+        const messages = await res.json();
+        messages.forEach(msg => {
+            appendDmBubble(msg.sender, msg.content, msg.sender === myUsername, msg.timestamp);
+        });
+    } catch (e) { console.error('loadDmHistory', e); }
+}
+
+// =====================================================================
+// DM – WYSYŁANIE
+// =====================================================================
+
+function sendDm() {
+    const input = document.getElementById('dm-input');
+    if (!input || !input.value.trim() || !currentDmUser) return;
+
+    if (!dmStompClient || !dmStompClient.connected) {
+        alert('Brak połączenia z serwerem wiadomości. Spróbuj ponownie za chwilę.');
+        initDmConnection();
+        return;
+    }
+
+    const message = {
+        type: 'DM',
+        sender: myUsername,
+        content: input.value.trim(),
+        targetUser: currentDmUser
+    };
+
+    dmStompClient.send('/app/dm', {}, JSON.stringify(message));
+    input.value = '';
+}
+
+// =====================================================================
+// DM – ODBIÓR WIADOMOŚCI PRZYCHODZĄCYCH
+// =====================================================================
+
+function handleIncomingDm(msg) {
+    const otherUser = msg.sender === myUsername ? msg.targetUser : msg.sender;
+
+    // Jeśli rozmowa jest otwarta – dołącz bąbelek
+    if (currentDmUser === otherUser) {
+        appendDmBubble(msg.sender, msg.content, msg.sender === myUsername, msg.timestamp);
+    } else {
+        // Zwiększ licznik nieprzeczytanych
+        dmUnreadCounts[otherUser] = (dmUnreadCounts[otherUser] || 0) + 1;
+        updateDmBadge(otherUser);
+
+        // Jeśli nie jesteśmy na zakładce wiadomości – pokaż powiadomienie w zakładce
+        const tabMessages = document.getElementById('tab-messages');
+        if (tabMessages && !tabMessages.classList.contains('active')) {
+            tabMessages.style.position = 'relative';
+            if (!document.getElementById('tab-messages-dot')) {
+                const dot = document.createElement('span');
+                dot.id = 'tab-messages-dot';
+                dot.style.cssText = 'position:absolute; top:4px; right:4px; width:7px; height:7px; background:var(--danger); border-radius:50%;';
+                tabMessages.appendChild(dot);
+            }
+        }
+    }
+}
+
+function updateDmBadge(username) {
+    const userEl = document.getElementById('dm-user-' + username);
+    if (!userEl) {
+        // Odśwież listę jeśli użytkownik nie jest widoczny (np. po filtrze)
+        renderDmUserList(allUsers);
+        return;
+    }
+    userEl.classList.add('has-unread');
+    let badge = userEl.querySelector('.dm-unread-badge');
+    if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'dm-unread-badge';
+        userEl.appendChild(badge);
+    }
+    badge.innerText = dmUnreadCounts[username];
+}
+
+// =====================================================================
+// DM – RENDEROWANIE BĄBELKA
+// =====================================================================
+
+function appendDmBubble(sender, content, isMe, timestamp) {
+    appendChatBubble('dm-messages', sender, content, isMe, timestamp);
+}
+
+// Czyść kropkę powiadomienia przy przełączaniu na zakładkę wiadomości — obsługa w switchRightTab powyżej
+
+// =====================================================================
+// PODNIESIENIE RĘKI – WIZUALIZACJA
+// =====================================================================
+
+/**
+ * Aktualizuje wszystkie elementy UI związane z podniesieniem ręki dla danego użytkownika.
+ * Szuka kart i wpisów na liście uczestników po atrybucie data-username.
+ */
+function updateHandVisual(username, isRaised) {
+    // --- Karta wideo w siatce ---
+    const card = document.querySelector('.participant-card[data-username="' + CSS.escape(username) + '"]');
+    if (card) {
+        const handIcon = card.querySelector('.card-hand-icon');
+        if (handIcon) handIcon.innerText = isRaised ? '✋' : '';
+
+        if (isRaised) {
+            card.classList.add('hand-raised');
+            // Usuń po 3 sekundach animację wejścia (ale zostaw stan)
+            setTimeout(() => card.classList.remove('hand-raised-bounce'), 300);
+            card.classList.add('hand-raised-bounce');
+        } else {
+            card.classList.remove('hand-raised');
+            card.classList.remove('hand-raised-bounce');
+        }
+    }
+
+    // --- Wpis na liście uczestników po prawej ---
+    const memberEl = document.querySelector('.member-item[data-username="' + CSS.escape(username) + '"]');
+    if (memberEl) {
+        const handIcon = memberEl.querySelector('.member-hand-icon');
+        if (handIcon) handIcon.innerText = isRaised ? '✋' : '';
+
+        if (isRaised) {
+            memberEl.classList.add('member-hand-raised');
+        } else {
+            memberEl.classList.remove('member-hand-raised');
+        }
+    }
+}
+
+// =====================================================================
+// STATUS MIKROFONU – WIZUALIZACJA
+// =====================================================================
+
+function updateMicVisual(username, muted) {
+    // Karta wideo
+    const card = document.querySelector('.participant-card[data-username="' + CSS.escape(username) + '"]');
+    if (card) {
+        const icon = card.querySelector('.card-mic-icon');
+        if (icon) {
+            icon.innerText = muted ? '🔇' : '🎤';
+            icon.title     = muted ? 'Wyciszony' : 'Mikrofon włączony';
+            icon.classList.toggle('muted', muted);
+        }
+    }
+
+    // Lista uczestników
+    const member = document.querySelector('.member-item[data-username="' + CSS.escape(username) + '"]');
+    if (member) {
+        const icon = member.querySelector('.member-mic-icon');
+        if (icon) {
+            icon.innerText = muted ? '🔇' : '🎤';
+            icon.title     = muted ? 'Wyciszony' : 'Mikrofon włączony';
+            icon.classList.toggle('muted', muted);
+        }
+    }
+}
+
+// Aktualizuj własną kartę i wpis po zmianie stanu przycisku wyciszenia
+function updateOwnMicVisual() {
+    updateMicVisual(myUsername, isMuted);
+}
+
+// =====================================================================
+// PODNIESIENIE RĘKI – WIZUALIZACJA
+// =====================================================================
+
+function updateHandVisual(username, isRaised) {
+    const card = document.querySelector('.participant-card[data-username="' + CSS.escape(username) + '"]');
+    if (card) {
+        const handIcon = card.querySelector('.card-hand-icon');
+        if (handIcon) handIcon.innerText = isRaised ? '✋' : '';
+        if (isRaised) {
+            card.classList.add('hand-raised');
+            card.classList.remove('hand-raised-bounce');
+            void card.offsetWidth; // reflow
+            card.classList.add('hand-raised-bounce');
+        } else {
+            card.classList.remove('hand-raised', 'hand-raised-bounce');
+        }
+    }
+
+    const memberEl = document.querySelector('.member-item[data-username="' + CSS.escape(username) + '"]');
+    if (memberEl) {
+        const handIcon = memberEl.querySelector('.member-hand-icon');
+        if (handIcon) handIcon.innerText = isRaised ? '✋' : '';
+        memberEl.classList.toggle('member-hand-raised', isRaised);
+    }
+}
+
+// =====================================================================
+// WHITEBOARD – TABLICA WSPÓLNA
+// =====================================================================
+
+function openWhiteboard() {
+    const overlay = document.getElementById('modal-whiteboard');
+    overlay.style.display = 'flex';
+    wbOpen = true;
+
+    wbCanvas = document.getElementById('wb-canvas');
+    wbCtx    = wbCanvas.getContext('2d');
+
+    // Dopasuj canvas do kontenera
+    resizeWbCanvas();
+    window.addEventListener('resize', resizeWbCanvas);
+
+    // Zdarzenia rysowania – mysz
+    wbCanvas.addEventListener('mousedown',  wbStartDraw);
+    wbCanvas.addEventListener('mousemove',  wbDraw);
+    wbCanvas.addEventListener('mouseup',    wbStopDraw);
+    wbCanvas.addEventListener('mouseleave', wbStopDraw);
+
+    // Zdarzenia rysowania – dotyk
+    wbCanvas.addEventListener('touchstart',  wbTouchStart,  { passive: false });
+    wbCanvas.addEventListener('touchmove',   wbTouchMove,   { passive: false });
+    wbCanvas.addEventListener('touchend',    wbStopDraw);
+
+    // Slider grubości
+    const sizeSlider = document.getElementById('wb-size');
+    const sizeLabel  = document.getElementById('wb-size-label');
+    sizeSlider.oninput = () => { sizeLabel.innerText = sizeSlider.value + 'px'; };
+
+    // Zaznacz aktywne narzędzie
+    setWbTool('pen');
+}
+
+function closeWhiteboard() {
+    const overlay = document.getElementById('modal-whiteboard');
+    overlay.style.display = 'none';
+    wbOpen = false;
+    wbDrawing = false;
+    window.removeEventListener('resize', resizeWbCanvas);
+
+    if (wbCanvas) {
+        wbCanvas.removeEventListener('mousedown',  wbStartDraw);
+        wbCanvas.removeEventListener('mousemove',  wbDraw);
+        wbCanvas.removeEventListener('mouseup',    wbStopDraw);
+        wbCanvas.removeEventListener('mouseleave', wbStopDraw);
+        wbCanvas.removeEventListener('touchstart', wbTouchStart);
+        wbCanvas.removeEventListener('touchmove',  wbTouchMove);
+        wbCanvas.removeEventListener('touchend',   wbStopDraw);
+    }
+}
+
+function resizeWbCanvas() {
+    if (!wbCanvas) return;
+    const wrap = wbCanvas.parentElement;
+    // Zapisz obraz przed resizem
+    const imgData = (wbCanvas.width > 0 && wbCanvas.height > 0)
+        ? wbCtx.getImageData(0, 0, wbCanvas.width, wbCanvas.height)
+        : null;
+
+    wbCanvas.width  = wrap.clientWidth;
+    wbCanvas.height = wrap.clientHeight;
+
+    // Przywróć obraz
+    if (imgData) wbCtx.putImageData(imgData, 0, 0);
+}
+
+function setWbTool(tool) {
+    wbTool = tool;
+    document.getElementById('wb-tool-pen')   .classList.toggle('active', tool === 'pen');
+    document.getElementById('wb-tool-eraser').classList.toggle('active', tool === 'eraser');
+    wbCanvas.style.cursor = tool === 'eraser' ? 'cell' : 'crosshair';
+}
+
+// --- Mysz ---
+function wbStartDraw(e) {
+    wbDrawing = true;
+    const pos = wbPos(e);
+    wbLastX = pos.x;
+    wbLastY = pos.y;
+    // Kropka przy kliknięciu (bez ruchu)
+    wbDrawLine(pos.x, pos.y, pos.x, pos.y);
+    wbSendStroke(pos.x, pos.y, pos.x, pos.y);
+}
+
+function wbDraw(e) {
+    if (!wbDrawing) return;
+    const pos = wbPos(e);
+    wbDrawLine(wbLastX, wbLastY, pos.x, pos.y);
+    wbSendStroke(wbLastX, wbLastY, pos.x, pos.y);
+    wbLastX = pos.x;
+    wbLastY = pos.y;
+}
+
+function wbStopDraw() { wbDrawing = false; }
+
+// --- Dotyk ---
+function wbTouchStart(e) {
+    e.preventDefault();
+    const t = e.touches[0];
+    wbDrawing = true;
+    const pos = wbPos(t);
+    wbLastX = pos.x; wbLastY = pos.y;
+    wbDrawLine(pos.x, pos.y, pos.x, pos.y);
+    wbSendStroke(pos.x, pos.y, pos.x, pos.y);
+}
+
+function wbTouchMove(e) {
+    e.preventDefault();
+    if (!wbDrawing) return;
+    const pos = wbPos(e.touches[0]);
+    wbDrawLine(wbLastX, wbLastY, pos.x, pos.y);
+    wbSendStroke(wbLastX, wbLastY, pos.x, pos.y);
+    wbLastX = pos.x; wbLastY = pos.y;
+}
+
+// --- Rysowanie lokalne ---
+function wbDrawLine(x1, y1, x2, y2, color, size, tool) {
+    if (!wbCtx) return;
+    const c    = color || document.getElementById('wb-color').value;
+    const s    = size  || parseInt(document.getElementById('wb-size').value);
+    const t    = tool  || wbTool;
+
+    wbCtx.save();
+    wbCtx.globalCompositeOperation = (t === 'eraser') ? 'destination-out' : 'source-over';
+    wbCtx.strokeStyle = c;
+    wbCtx.lineWidth   = (t === 'eraser') ? s * 4 : s;
+    wbCtx.lineCap     = 'round';
+    wbCtx.lineJoin    = 'round';
+    wbCtx.beginPath();
+    wbCtx.moveTo(x1, y1);
+    wbCtx.lineTo(x2, y2);
+    wbCtx.stroke();
+    wbCtx.restore();
+}
+
+// --- Wysyłanie kreski przez WebSocket ---
+function wbSendStroke(x1, y1, x2, y2) {
+    if (!stompClient || !currentChannelId || !wbCanvas) return;
+    // Normalizuj do [0,1] żeby działało niezależnie od rozmiaru okna
+    const w = wbCanvas.width;
+    const h = wbCanvas.height;
+    const msg = {
+        type:    'WHITEBOARD',
+        sender:  myUsername,
+        content: JSON.stringify({
+            action: 'draw',
+            x1: x1 / w, y1: y1 / h,
+            x2: x2 / w, y2: y2 / h,
+            color: document.getElementById('wb-color').value,
+            size:  parseInt(document.getElementById('wb-size').value),
+            tool:  wbTool
+        })
+    };
+    stompClient.send('/app/room/' + currentChannelId + '/chat', {}, JSON.stringify(msg));
+}
+
+// --- Wyczyszczenie tablicy ---
+function clearWhiteboard(broadcast) {
+    if (!wbCtx || !wbCanvas) return;
+    wbCtx.clearRect(0, 0, wbCanvas.width, wbCanvas.height);
+
+    if (broadcast && stompClient && currentChannelId) {
+        stompClient.send('/app/room/' + currentChannelId + '/chat', {}, JSON.stringify({
+            type:    'WHITEBOARD',
+            sender:  myUsername,
+            content: JSON.stringify({ action: 'clear' })
+        }));
+    }
+}
+
+// --- Odbiór zdarzeń tablicy ---
+function handleWhiteboardMessage(msg) {
+    // Ignoruj własne wiadomości (już narysowane lokalnie)
+    if (msg.sender === myUsername) return;
+
+    // Otwórz tablicę dla wszystkich gdy ktoś rysuje
+    if (!wbOpen) openWhiteboard();
+
+    let data;
+    try { data = JSON.parse(msg.content); } catch { return; }
+
+    if (data.action === 'clear') {
+        clearWhiteboard(false);
+        return;
+    }
+
+    if (data.action === 'draw' && wbCanvas) {
+        const w = wbCanvas.width;
+        const h = wbCanvas.height;
+        wbDrawLine(
+            data.x1 * w, data.y1 * h,
+            data.x2 * w, data.y2 * h,
+            data.color, data.size, data.tool
+        );
+    }
+}
+
+// --- Pozycja myszy/dotyku względem canvas ---
+function wbPos(e) {
+    const rect = wbCanvas.getBoundingClientRect();
+    return {
+        x: (e.clientX - rect.left) * (wbCanvas.width  / rect.width),
+        y: (e.clientY - rect.top)  * (wbCanvas.height / rect.height)
+    };
 }

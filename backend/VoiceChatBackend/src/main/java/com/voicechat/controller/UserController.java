@@ -1,6 +1,8 @@
 package com.voicechat.controller;
 
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -24,6 +26,21 @@ public class UserController {
     public UserController(UserRepository userRepository, PasswordEncoder passwordEncoder) {
         this.userRepository  = userRepository;
         this.passwordEncoder = passwordEncoder;
+    }
+
+    /** Lista wszystkich użytkowników (do otwierania DM) — zwraca username i rolę */
+    @GetMapping("/all")
+    public ResponseEntity<List<Map<String, String>>> listAllUsers(Authentication auth) {
+        String me = auth.getName();
+        List<Map<String, String>> users = userRepository.findAll()
+                .stream()
+                .filter(u -> !u.getUsername().equals(me))
+                .map(u -> Map.of(
+                        "username", u.getUsername(),
+                        "role", u.getRole() != null ? u.getRole() : "STUDENT"
+                ))
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(users);
     }
 
     @GetMapping("/me")

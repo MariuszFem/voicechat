@@ -136,6 +136,7 @@
                 <span id="voice-channel-name">kanał</span>
                 <div class="live-pill">NA ŻYWO</div>
                 <button class="header-btn" id="btn-share-screen" onclick="toggleScreenShare()">🖥️ Udostępnij ekran</button>
+                <button class="header-btn" id="btn-open-whiteboard" onclick="openWhiteboard()" style="margin-left:6px;">🎨 Tablica</button>
             </div>
 
             <div class="participants-grid" id="participants-grid"></div>
@@ -149,27 +150,78 @@
                 <button class="ctrl-btn" id="mute-btn" onclick="toggleMute()" title="Mikrofon">🎤</button>
                 <button class="ctrl-btn" id="cam-btn" onclick="toggleCamera()" title="Kamera">📷</button>
                 <button class="ctrl-btn" id="btn-hand" onclick="toggleHand()" title="Podnieś rękę">✋</button>
-                <button class="ctrl-btn" id="btn-whiteboard" onclick="toggleWhiteboard()" title="Wspólna Tablica">🎨</button>
                 <button class="ctrl-btn danger" onclick="leaveChannel()" title="Rozłącz">📵</button>
             </div>
         </div>
     </main>
 
     <aside class="members-panel" style="display: flex; flex-direction: column;">
-        <div class="members-title">UCZESTNICY — <span id="member-count">0</span></div>
-        <div id="members-list" style="flex-shrink: 0; max-height: 40%; overflow-y: auto;"></div>
-
-        <div id="attendance-btn-wrap" style="display:none; padding: 8px;">
-            <button class="btn-attendance" onclick="loadAttendance()">📋 Lista obecności</button>
+        <!-- Zakładki: Uczestnicy / Wiadomości -->
+        <div class="right-panel-tabs">
+            <button id="tab-participants" class="rpanel-tab active" onclick="switchRightTab('participants')">Uczestnicy</button>
+            <button id="tab-messages" class="rpanel-tab" onclick="switchRightTab('messages')">Wiadomości</button>
         </div>
 
-        <div id="voice-chat-section" style="display: none; flex-grow: 1; flex-direction: column; border-top: 1px solid var(--border); margin-top: 10px; padding-top: 10px;">
-            <div class="members-title" style="margin-bottom: 10px;">CZAT POKOJU</div>
-            <div id="voice-chat-messages" style="flex-grow: 1; overflow-y: auto; padding: 0 15px 15px 15px; font-size: 13px; color: var(--text-light); display: flex; flex-direction: column; gap: 10px;"></div>
-            <div style="padding: 10px 15px;">
-                <input type="text" id="voice-chat-input" placeholder="Napisz..."
-                       style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-dark); color: var(--text-light); outline: none; box-sizing: border-box;"
-                       onkeydown="if(event.key==='Enter') sendChatMessage(false)">
+        <!-- ZAKŁADKA: UCZESTNICY -->
+        <div id="right-participants" style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
+            <div class="members-title" style="padding: 10px 15px 4px;">UCZESTNICY — <span id="member-count">0</span></div>
+            <div id="members-list" style="flex-shrink: 0; max-height: 38%; overflow-y: auto; padding: 0 8px;"></div>
+
+            <div id="attendance-btn-wrap" style="display:none; padding: 8px;">
+                <button class="btn-attendance" onclick="loadAttendance()">📋 Lista obecności</button>
+            </div>
+
+            <div id="voice-chat-section" style="display: none; flex-grow: 1; flex-direction: column; border-top: 1px solid var(--border); margin-top: 10px; padding-top: 10px;">
+                <div class="members-title" style="margin-bottom: 10px; padding: 0 15px;">CZAT POKOJU</div>
+                <div id="voice-chat-messages" style="flex-grow: 1; overflow-y: auto; padding: 0 15px 15px 15px; font-size: 13px; color: var(--text-light); display: flex; flex-direction: column; gap: 10px;"></div>
+                <div style="padding: 10px 15px;">
+                    <input type="text" id="voice-chat-input" placeholder="Napisz..."
+                           style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-dark); color: var(--text-light); outline: none; box-sizing: border-box;"
+                           onkeydown="if(event.key==='Enter') sendChatMessage(false)">
+                </div>
+            </div>
+        </div>
+
+        <!-- ZAKŁADKA: WIADOMOŚCI (DM) -->
+        <div id="right-messages" style="display: none; flex-direction: column; flex: 1; overflow: hidden;">
+
+            <!-- Lista użytkowników do DM -->
+            <div id="dm-user-list-view" style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
+                <div class="members-title" style="padding: 10px 15px 6px; flex-shrink: 0;">UŻYTKOWNICY</div>
+                <div style="padding: 6px 12px; flex-shrink: 0;">
+                    <input id="dm-search" type="text" placeholder="🔍 Szukaj użytkownika..."
+                           style="width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+                                  background: var(--bg-dark); color: var(--text-light); outline: none; box-sizing: border-box; font-size: 13px;"
+                           oninput="filterDmUsers()">
+                </div>
+                <div id="dm-users-list" style="flex: 1; overflow-y: auto; padding: 4px 8px;"></div>
+            </div>
+
+            <!-- Okno konkretnej rozmowy DM -->
+            <div id="dm-conversation-view" style="display: none; flex-direction: column; flex: 1; overflow: hidden;">
+                <div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+                             border-bottom: 1px solid var(--border); flex-shrink: 0;">
+                    <button onclick="closeDmConversation()"
+                            style="background: none; border: none; color: var(--text-mid); cursor: pointer; font-size: 16px; padding: 0;">←</button>
+                    <div class="member-avatar" id="dm-conv-avatar">?</div>
+                    <div>
+                        <div style="font-weight: 600; color: var(--text-light); font-size: 14px;" id="dm-conv-name">Użytkownik</div>
+                        <div style="font-size: 11px; color: var(--text-mid);" id="dm-conv-role"></div>
+                    </div>
+                </div>
+                <div id="dm-messages" style="flex: 1; overflow-y: auto; padding: 12px 14px;
+                                              display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: var(--text-light);"></div>
+                <div style="padding: 10px 12px; border-top: 1px solid var(--border); flex-shrink: 0;">
+                    <div style="display: flex; gap: 8px; background: var(--bg-dark); border: 1px solid var(--border);
+                                border-radius: 8px; padding: 4px 10px; align-items: center;">
+                        <input type="text" id="dm-input" placeholder="Napisz wiadomość..."
+                               style="flex: 1; padding: 8px 4px; border: none; background: transparent;
+                                      color: var(--text-light); outline: none; font-size: 13px;"
+                               onkeydown="if(event.key==='Enter') sendDm()">
+                        <button onclick="sendDm()"
+                                style="background: none; border: none; color: var(--primary); cursor: pointer; font-size: 16px; padding: 4px;">➤</button>
+                    </div>
+                </div>
             </div>
         </div>
     </aside>
@@ -241,6 +293,42 @@
         <div id="attendance-list" style="max-height:320px; overflow-y:auto; margin-top:12px;"></div>
         <div class="modal-actions">
             <button class="btn-auth" onclick="hideModal('modal-attendance')">Zamknij</button>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+<script src="app.js"></script>
+
+
+<!-- ===== MODAL: TABLICA (WHITEBOARD) ===== -->
+<div id="modal-whiteboard" class="wb-overlay" style="display:none;">
+    <div class="wb-container">
+        <!-- Pasek narzędzi -->
+        <div class="wb-toolbar">
+            <div class="wb-toolbar-left">
+                <span class="wb-title">🎨 Wspólna Tablica</span>
+                <div class="wb-tool-group">
+                    <button id="wb-tool-pen"    class="wb-tool active" onclick="setWbTool('pen')"    title="Pisak">✏️</button>
+                    <button id="wb-tool-eraser" class="wb-tool"        onclick="setWbTool('eraser')" title="Gumka">🧹</button>
+                </div>
+                <div class="wb-tool-group">
+                    <label class="wb-label">Kolor</label>
+                    <input type="color" id="wb-color" value="#1a2744" class="wb-color-picker" title="Kolor pisaka">
+                </div>
+                <div class="wb-tool-group">
+                    <label class="wb-label">Grubość</label>
+                    <input type="range" id="wb-size" min="1" max="24" value="3" class="wb-size-slider" title="Grubość linii">
+                    <span id="wb-size-label" class="wb-label">3px</span>
+                </div>
+                <button class="wb-btn-clear" onclick="clearWhiteboard(true)" title="Wyczyść tablicę">🗑️ Wyczyść</button>
+            </div>
+            <button class="wb-btn-close" onclick="closeWhiteboard()" title="Zamknij tablicę">✕</button>
+        </div>
+        <!-- Canvas -->
+        <div class="wb-canvas-wrap">
+            <canvas id="wb-canvas"></canvas>
         </div>
     </div>
 </div>

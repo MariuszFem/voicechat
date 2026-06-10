@@ -42,8 +42,15 @@ public class SecurityConfig {
                         // Endpoint WebSocket (autoryzacja tokenu wewnątrz interceptora)
                         .requestMatchers("/ws/**").permitAll()
 
-                        // Pełny dostęp dla zalogowanych do zarządzania pokojami (pobieranie, tworzenie, dołączanie, opuszczanie)
+                        // Pełny dostęp dla zalogowanych do zarządzania pokojami
                         .requestMatchers("/api/rooms/**").authenticated()
+
+                        // Czat: historia kanałów i DM
+                        .requestMatchers("/api/channels/**").authenticated()
+                        .requestMatchers("/api/dm/**").authenticated()
+
+                        // Lista użytkowników
+                        .requestMatchers("/api/users/**").authenticated()
 
                         // Wszelkie inne zapytania
                         .anyRequest().authenticated()
