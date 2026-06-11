@@ -107,11 +107,7 @@ public class ChatController {
 
         return ResponseEntity.ok(result);
     }
-
-    // ----------------------------------------------------------------
-    // REST: historia prywatnych wiadomości
-    // ----------------------------------------------------------------
-
+    
     @GetMapping("/dm/{otherUser}/history")
     public ResponseEntity<List<Map<String, String>>> getDmHistory(
             @PathVariable String otherUser,

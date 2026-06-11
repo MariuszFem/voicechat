@@ -12,4 +12,3 @@ public class VoicechatBackendApplication {
 }
 
 
-    //uruchamia caly program

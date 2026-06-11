@@ -347,11 +347,14 @@ async function joinVoice(channelId, channelName) {
         await loadChannelHistory(channelId, false);
 
         try {
-            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-        } catch {
-            try { localStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-            catch (e) { alert('Brak dostępu do mikrofonu/kamery!'); leaveChannel(); return; }
-        }
+            // Najpierw próbuj tylko audio (mniej lagów, bardziej niezawodne)
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            // Potem opcjonalnie dodaj wideo
+            try {
+                const videoStream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240, frameRate: 15 } });
+                videoStream.getVideoTracks().forEach(t => localStream.addTrack(t));
+            } catch { /* kamera niedostępna - kontynuuj bez video */ }
+        } catch (e) { alert('Brak dostępu do mikrofonu!'); leaveChannel(); return; }
 
         const videoEl = document.getElementById('video-' + myId);
         if (videoEl) videoEl.srcObject = localStream;
@@ -460,7 +463,10 @@ async function handleSignal(data) {
             break;
 
         case 'screen-start':
-            if (myRole === 'TEACHER') showRemoteScreen(peerId, data.username);
+            // Teacher widzi ekrany wszystkich, student widzi tylko swój własny
+            if (myRole === 'TEACHER') {
+                showRemoteScreen(peerId, data.username || 'Uczestnik');
+            }
             break;
 
         case 'screen-stop':
@@ -481,12 +487,41 @@ async function createPeerConnection(peerId, isInitiator) {
     }
 
     pc.ontrack = event => {
-        const videoEl = document.getElementById('video-' + peerId);
-        if (videoEl) videoEl.srcObject = event.streams[0];
+        const stream = event.streams[0];
+        if (!stream) return;
+
+        // Sprawdź czy to stream ekranu (tylko video, bez audio) czy kamera/mikrofon
+        const hasAudio = stream.getAudioTracks().length > 0;
+        const hasVideo = stream.getVideoTracks().length > 0;
+
+        if (hasVideo && !hasAudio) {
+            // Prawdopodobnie screen share - podepnij do elementu screen
+            let screenVideoEl = document.getElementById('screenVideo-' + peerId);
+            if (!screenVideoEl) {
+                // Stwórz element jeśli nie istnieje
+                showRemoteScreen(peerId, 'Uczestnik');
+                screenVideoEl = document.getElementById('screenVideo-' + peerId);
+            }
+            if (screenVideoEl) {
+                screenVideoEl.srcObject = stream;
+                screenVideoEl.play().catch(() => {});
+            }
+        } else {
+            // Kamera/mikrofon - podepnij do karty uczestnika
+            const videoEl = document.getElementById('video-' + peerId);
+            if (videoEl) {
+                videoEl.srcObject = stream;
+                videoEl.play().catch(() => {});
+            }
+        }
     };
 
     pc.onicecandidate = event => {
         if (event.candidate) sendSignal({ type: 'ice', candidate: event.candidate, targetId: peerId });
+    };
+
+    pc.oniceconnectionstatechange = () => {
+        console.log(`ICE ${peerId}: ${pc.iceConnectionState}`);
     };
 
     if (isInitiator) {
