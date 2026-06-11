@@ -415,47 +415,74 @@ async function handleSignal(data) {
 
     switch (data.type) {
         case 'join':
+            // Ktoś nowy dołączył - dodaj kartę i odpowiedz welcome, potem wyślij offer
+            removeParticipant(peerId); // Usuń stare dane jeśli były (np. po F5)
+            if (peerConnections[peerId]) { peerConnections[peerId].close(); delete peerConnections[peerId]; }
+
             addParticipantCard(peerId, data.username, false);
             addMemberItem(peerId, data.username, data.role);
+            // Najpierw wyślij welcome (synchronicznie)
             sendSignal({ type: 'welcome', targetId: peerId, username: myUsername, role: myRole });
-            await createPeerConnection(peerId, true);
+            // Potem po chwili utwórz offer żeby welcome dotarło pierwsze
+            setTimeout(async () => {
+                await createPeerConnection(peerId, true);
+            }, 300);
             break;
 
         case 'welcome':
-            addParticipantCard(peerId, data.username, false);
-            addMemberItem(peerId, data.username, data.role);
+            // Ktoś już był w kanale - dodaj go do widoku (bez tworzenia połączenia, on wyśle offer)
+            if (!document.getElementById('card-' + peerId)) {
+                addParticipantCard(peerId, data.username, false);
+                addMemberItem(peerId, data.username, data.role);
+            }
             break;
 
         case 'leave':
             removeParticipant(peerId);
             if (peerConnections[peerId]) { peerConnections[peerId].close(); delete peerConnections[peerId]; }
+            delete earlyIceCandidates[peerId];
             break;
 
         case 'offer':
-            addParticipantCard(peerId, data.username || 'Nieznany', false);
-            addMemberItem(peerId, data.username || 'Nieznany', data.role || 'STUDENT');
+            // Upewnij się że karta istnieje
+            if (!document.getElementById('card-' + peerId)) {
+                addParticipantCard(peerId, data.username || 'Uczestnik', false);
+                addMemberItem(peerId, data.username || 'Uczestnik', data.role || 'STUDENT');
+            }
 
             await createPeerConnection(peerId, false);
             await peerConnections[peerId].setRemoteDescription(new RTCSessionDescription(data.sdp));
 
+            // Dodaj wcześnie zebrane ICE candidates
+            if (earlyIceCandidates[peerId]) {
+                for (const c of earlyIceCandidates[peerId]) {
+                    await peerConnections[peerId].addIceCandidate(c).catch(() => {});
+                }
+                delete earlyIceCandidates[peerId];
+            }
+
             const answer = await peerConnections[peerId].createAnswer();
             await peerConnections[peerId].setLocalDescription(answer);
             sendSignal({ type: 'answer', sdp: answer, targetId: peerId });
-
-            if (earlyIceCandidates[peerId]) {
-                earlyIceCandidates[peerId].forEach(c => peerConnections[peerId].addIceCandidate(c).catch(e => console.log(e)));
-                delete earlyIceCandidates[peerId];
-            }
             break;
 
         case 'answer':
-            await peerConnections[peerId]?.setRemoteDescription(new RTCSessionDescription(data.sdp));
+            if (peerConnections[peerId]) {
+                await peerConnections[peerId].setRemoteDescription(new RTCSessionDescription(data.sdp));
+                // Dodaj wcześnie zebrane ICE candidates
+                if (earlyIceCandidates[peerId]) {
+                    for (const c of earlyIceCandidates[peerId]) {
+                        await peerConnections[peerId].addIceCandidate(c).catch(() => {});
+                    }
+                    delete earlyIceCandidates[peerId];
+                }
+            }
             break;
 
         case 'ice':
             const candidate = new RTCIceCandidate(data.candidate);
             if (peerConnections[peerId] && peerConnections[peerId].remoteDescription) {
-                await peerConnections[peerId].addIceCandidate(candidate).catch(e => console.log(e));
+                await peerConnections[peerId].addIceCandidate(candidate).catch(() => {});
             } else {
                 if (!earlyIceCandidates[peerId]) earlyIceCandidates[peerId] = [];
                 earlyIceCandidates[peerId].push(candidate);
@@ -463,7 +490,6 @@ async function handleSignal(data) {
             break;
 
         case 'screen-start':
-            // Teacher widzi ekrany wszystkich, student widzi tylko swój własny
             if (myRole === 'TEACHER') {
                 showRemoteScreen(peerId, data.username || 'Uczestnik');
             }
@@ -476,44 +502,42 @@ async function handleSignal(data) {
 }
 
 async function createPeerConnection(peerId, isInitiator) {
+    // Zamknij stare połączenie jeśli istnieje
+    if (peerConnections[peerId]) {
+        peerConnections[peerId].close();
+        delete peerConnections[peerId];
+    }
+
     const pc = new RTCPeerConnection(rtcConfig);
     peerConnections[peerId] = pc;
 
+    // Dodaj lokalne tory audio/video
     if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
 
+    // Jeśli udostępniamy ekran - dodaj też do nowego połączenia
     if (isSharingScreen && screenStream) {
         screenStream.getTracks().forEach(t => pc.addTrack(t, screenStream));
-        sendSignal({ type: 'screen-start', username: myUsername, targetId: peerId });
+        setTimeout(() => sendSignal({ type: 'screen-start', username: myUsername, targetId: peerId }), 1000);
     }
 
     pc.ontrack = event => {
         const stream = event.streams[0];
         if (!stream) return;
 
-        // Sprawdź czy to stream ekranu (tylko video, bez audio) czy kamera/mikrofon
-        const hasAudio = stream.getAudioTracks().length > 0;
-        const hasVideo = stream.getVideoTracks().length > 0;
-
-        if (hasVideo && !hasAudio) {
-            // Prawdopodobnie screen share - podepnij do elementu screen
-            let screenVideoEl = document.getElementById('screenVideo-' + peerId);
-            if (!screenVideoEl) {
-                // Stwórz element jeśli nie istnieje
-                showRemoteScreen(peerId, 'Uczestnik');
-                screenVideoEl = document.getElementById('screenVideo-' + peerId);
-            }
-            if (screenVideoEl) {
-                screenVideoEl.srcObject = stream;
-                screenVideoEl.play().catch(() => {});
-            }
-        } else {
-            // Kamera/mikrofon - podepnij do karty uczestnika
+        // Retry żeby poczekać aż DOM element będzie gotowy
+        const tryAttach = (attempts) => {
             const videoEl = document.getElementById('video-' + peerId);
             if (videoEl) {
-                videoEl.srcObject = stream;
-                videoEl.play().catch(() => {});
+                // Jeśli element już ma stream z audio - nie nadpisuj kamerą bez audio
+                if (!videoEl.srcObject || stream.getAudioTracks().length > 0 || !videoEl.srcObject.getAudioTracks().length) {
+                    videoEl.srcObject = stream;
+                    videoEl.play().catch(() => {});
+                }
+            } else if (attempts > 0) {
+                setTimeout(() => tryAttach(attempts - 1), 200);
             }
-        }
+        };
+        tryAttach(10);
     };
 
     pc.onicecandidate = event => {
@@ -521,11 +545,16 @@ async function createPeerConnection(peerId, isInitiator) {
     };
 
     pc.oniceconnectionstatechange = () => {
-        console.log(`ICE ${peerId}: ${pc.iceConnectionState}`);
+        const state = pc.iceConnectionState;
+        console.log(`ICE [${peerId}]: ${state}`);
+        if (state === 'failed') {
+            console.warn('ICE failed, restarting...');
+            pc.restartIce();
+        }
     };
 
     if (isInitiator) {
-        const offer = await pc.createOffer();
+        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
         await pc.setLocalDescription(offer);
         sendSignal({ type: 'offer', sdp: offer, targetId: peerId, username: myUsername, role: myRole });
     }
@@ -537,20 +566,28 @@ async function toggleScreenShare() {
 }
 
 async function startScreenShare() {
+    // getDisplayMedia nie jest dostępne na telefonach
+    if (!navigator.mediaDevices.getDisplayMedia) {
+        alert('Udostępnianie ekranu nie jest obsługiwane na tym urządzeniu (mobilne przeglądarki nie wspierają tej funkcji).');
+        return;
+    }
     try {
-        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 10 }, audio: false });
         isSharingScreen = true;
         const btn = document.getElementById('btn-share-screen');
-        btn.classList.add('active');
-        btn.innerText = '🖥️ Zatrzymaj';
+        if (btn) { btn.classList.add('active'); btn.innerText = '🖥️ Zatrzymaj'; }
 
         showLocalScreen();
         sendSignal({ type: 'screen-start', username: myUsername });
 
         const track = screenStream.getVideoTracks()[0];
-        Object.values(peerConnections).forEach(pc => pc.addTrack(track, screenStream));
+        Object.values(peerConnections).forEach(pc => {
+            try { pc.addTrack(track, screenStream); } catch (e) {}
+        });
         track.onended = stopScreenShare;
-    } catch (e) { console.error(e); }
+    } catch (e) {
+        if (e.name !== 'AbortError' && e.name !== 'NotAllowedError') console.error(e);
+    }
 }
 
 function stopScreenShare() {
