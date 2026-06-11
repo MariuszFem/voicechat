@@ -490,8 +490,16 @@ async function handleSignal(data) {
             break;
 
         case 'screen-start':
+            // Zasady widoczności ekranu:
+            // - TEACHER widzi ekrany wszystkich studentów
+            // - STUDENT widzi tylko ekran TEACHER (wykładowcy)
+            // - TEACHER nie widzi ekranu innego TEACHER
             if (myRole === 'TEACHER') {
+                // Teacher widzi wszystkich udostępniających
                 showRemoteScreen(peerId, data.username || 'Uczestnik');
+            } else if (data.role === 'TEACHER') {
+                // Student widzi tylko ekran wykładowcy
+                showRemoteScreen(peerId, data.username || 'Wykładowca');
             }
             break;
 
@@ -524,20 +532,33 @@ async function createPeerConnection(peerId, isInitiator) {
         const stream = event.streams[0];
         if (!stream) return;
 
-        // Retry żeby poczekać aż DOM element będzie gotowy
-        const tryAttach = (attempts) => {
-            const videoEl = document.getElementById('video-' + peerId);
-            if (videoEl) {
-                // Jeśli element już ma stream z audio - nie nadpisuj kamerą bez audio
-                if (!videoEl.srcObject || stream.getAudioTracks().length > 0 || !videoEl.srcObject.getAudioTracks().length) {
+        const hasAudio = stream.getAudioTracks().length > 0;
+
+        if (!hasAudio) {
+            // Brak audio = screen share stream
+            const tryAttachScreen = (attempts) => {
+                const screenEl = document.getElementById('screenVideo-' + peerId);
+                if (screenEl) {
+                    screenEl.srcObject = stream;
+                    screenEl.play().catch(() => {});
+                } else if (attempts > 0) {
+                    setTimeout(() => tryAttachScreen(attempts - 1), 300);
+                }
+            };
+            tryAttachScreen(15);
+        } else {
+            // Audio obecne = kamera + mikrofon
+            const tryAttach = (attempts) => {
+                const videoEl = document.getElementById('video-' + peerId);
+                if (videoEl) {
                     videoEl.srcObject = stream;
                     videoEl.play().catch(() => {});
+                } else if (attempts > 0) {
+                    setTimeout(() => tryAttach(attempts - 1), 200);
                 }
-            } else if (attempts > 0) {
-                setTimeout(() => tryAttach(attempts - 1), 200);
-            }
-        };
-        tryAttach(10);
+            };
+            tryAttach(10);
+        }
     };
 
     pc.onicecandidate = event => {
@@ -578,7 +599,7 @@ async function startScreenShare() {
         if (btn) { btn.classList.add('active'); btn.innerText = '🖥️ Zatrzymaj'; }
 
         showLocalScreen();
-        sendSignal({ type: 'screen-start', username: myUsername });
+        sendSignal({ type: 'screen-start', username: myUsername, role: myRole });
 
         const track = screenStream.getVideoTracks()[0];
         Object.values(peerConnections).forEach(pc => {
@@ -603,13 +624,22 @@ function stopScreenShare() {
 function showLocalScreen() {
     const grid = document.getElementById('screens-grid');
     document.getElementById('screens-area').style.display = 'block';
-    if (document.getElementById('screen-local')) return;
+    if (document.getElementById('screen-local')) {
+        // Odśwież srcObject jeśli element już istnieje
+        const v = document.querySelector('#screen-local video');
+        if (v && screenStream) { v.srcObject = screenStream; v.play().catch(() => {}); }
+        return;
+    }
     const w = document.createElement('div');
     w.className = 'screen-wrapper'; w.id = 'screen-local';
     w.innerHTML = '<div class="screen-label">🖥️ Twój ekran</div>';
     const v = document.createElement('video');
-    v.autoplay = true; v.muted = true; v.srcObject = screenStream;
+    v.autoplay = true; v.muted = true; v.playsInline = true;
     w.appendChild(v); grid.appendChild(w);
+    // Podepnij stream po dodaniu do DOM
+    setTimeout(() => {
+        if (screenStream) { v.srcObject = screenStream; v.play().catch(() => {}); }
+    }, 100);
 }
 
 function removeLocalScreen() {
